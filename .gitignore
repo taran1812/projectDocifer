@@ -1,0 +1,75 @@
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# UV / Python
+.python-version
+uv.lock
+
+# -----------------------------
+# Environment files
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# IDE / OS
+# -----------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Test / tooling caches
+# -----------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# -----------------------------
+# Node / frontend
+# -----------------------------
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# -----------------------------
+# Local datasets and generated artifacts
+# -----------------------------
+datasets/raw_pdfs/
+datasets/processed/
+datasets/cache/
+artifacts/
+
+# Keep folder structure
+!datasets/raw_pdfs/.gitkeep
+!datasets/processed/.gitkeep
+!datasets/cache/.gitkeep
+!artifacts/.gitkeep
+
+# -----------------------------
+# Logs
+# -----------------------------
+*.log
+logs/
+
+# -----------------------------
+# Docker / local data exports
+# -----------------------------
+*.pid

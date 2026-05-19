@@ -1,0 +1,22 @@
+[project]
+name = "docifer-backend"
+version = "0.1.0"
+description = "Backend API and AI orchestration service for Docifer."
+readme = "README.md"
+authors = [
+    { name = "Taran Patel", email = "taranms1812@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.136.1",
+    "psycopg[binary]>=3.3.4",
+    "pydantic-settings>=2.14.1",
+    "python-dotenv>=1.2.2",
+    "qdrant-client>=1.18.0",
+    "sqlalchemy>=2.0.49",
+    "uvicorn[standard]>=0.47.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
