@@ -56,12 +56,14 @@ datasets/raw_pdfs/
 datasets/processed/
 datasets/cache/
 artifacts/
+evals/runs/
 
 # Keep folder structure
 !datasets/raw_pdfs/.gitkeep
 !datasets/processed/.gitkeep
 !datasets/cache/.gitkeep
 !artifacts/.gitkeep
+!evals/README.md
 
 # -----------------------------
 # Logs

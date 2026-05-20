@@ -71,3 +71,19 @@ Ask a baseline text question:
 ```
 
 The response includes a grounded answer, citations, retrieved text chunks, and debug metadata.
+
+## Phase 5 evaluation baseline
+
+Run the current indexed-document evaluation baseline:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase5_current_indexed_baseline --top-k 3
+```
+
+Run only the validated World Development Report slice:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase5_doc005_baseline --doc-id DOC-005 --top-k 3
+```
+
+Evaluation outputs are written under `evals/runs/<run-name>/` and include `results.jsonl`, `summary.json`, `report.md`, and `ragas_input.jsonl`.

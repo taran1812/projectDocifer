@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     processed_data_dir: str = "datasets/processed"
     artifacts_dir: str = "artifacts"
     qdrant_text_collection: str = "docifer_text_chunks"
+    golden_eval_path: str = "docifer_phase1_corpus_and_golden_eval_v1.xlsx"
+    eval_runs_dir: str = "evals/runs"
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[4] / ".env",

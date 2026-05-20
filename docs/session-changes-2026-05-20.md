@@ -8,6 +8,7 @@ Implemented and validated:
 
 - **Phase 3 - Document Ingestion**
 - **Phase 4 - Text RAG Baseline**
+- **Phase 5 - Evaluation v1 and Early LangSmith**
 
 The project now has a working ingestion pipeline that can:
 
@@ -741,6 +742,14 @@ Real OpenAI-backed validation was run for:
 - FastAPI `/index/text`,
 - FastAPI `/query`.
 
+## Phase 4 Commit
+
+Committed as:
+
+```text
+bd3f6d5 Implement phase 4 text RAG baseline
+```
+
 ## Phase 4 Gate Status
 
 Phase 4 text baseline is valid for the first ingested document.
@@ -756,34 +765,408 @@ Satisfied:
 - `/query` retrieves evidence and returns a cited answer,
 - tests cover the core baseline behavior.
 
-Phase 4 is not yet committed.
+Phase 4 is committed.
 
-Current uncommitted Phase 4 files include:
+Phase 4 unlocked the next phase:
+
+```text
+Phase 5 - Evaluation v1 and Early LangSmith
+```
+
+---
+
+# Phase 5 Changes - Evaluation v1 and Early LangSmith
+
+Phase 5 added a repeatable measurement harness for the current text RAG baseline. This phase measures the baseline without changing retrieval behavior.
+
+## Phase 5 Backend Dependencies
+
+Updated:
+
+```text
+backend/pyproject.toml
+```
+
+Added runtime dependency:
+
+```text
+langsmith>=0.8.5
+```
+
+The LangSmith Python SDK was installed into the backend virtual environment using `uv`.
+
+## Phase 5 Configuration
+
+Updated:
+
+```text
+backend/src/docifer_backend/config/settings.py
+.env.example
+```
+
+Added:
+
+```text
+GOLDEN_EVAL_PATH=docifer_phase1_corpus_and_golden_eval_v1.xlsx
+EVAL_RUNS_DIR=evals/runs
+```
+
+Verified existing key configuration:
+
+```text
+OPENAI_API_KEY present: true
+LANGSMITH_API_KEY present: true
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=docifer-dev
+```
+
+## Golden Dataset Loader
+
+Added:
+
+```text
+backend/src/docifer_backend/evaluation/dataset.py
+```
+
+Implemented:
+
+- loader for the `QA Evaluation Template` sheet,
+- loader for the `Starter Corpus` sheet,
+- typed `GoldenQuestion` records,
+- typed `CorpusDocument` records,
+- parsing for abstention flags and optional fields.
+
+Validated workbook:
+
+```text
+docifer_phase1_corpus_and_golden_eval_v1.xlsx
+```
+
+Current seeded QA count:
+
+```text
+40 questions
+```
+
+Distribution:
+
+- Text Factual: 14
+- Text Synthesis: 6
+- Table Lookup: 5
+- Table Reasoning: 4
+- Chart / Visual: 5
+- Mixed Modality: 2
+- Unsupported / Abstention: 4
+
+## Document Registry
+
+Added:
+
+```text
+backend/src/docifer_backend/evaluation/registry.py
+```
+
+Implemented:
+
+- DOC ID to local PDF filename mapping,
+- lookup of ingested documents in Postgres,
+- lookup of indexed text chunk counts,
+- explicit indexed/unindexed status for each document.
+
+This lets the eval runner distinguish actual failures from documents that have not been indexed yet.
+
+## Custom Metrics
+
+Added:
+
+```text
+backend/src/docifer_backend/evaluation/metrics.py
+```
+
+Implemented baseline metrics:
+
+- answer present,
+- citation count,
+- citation presence,
+- retrieved evidence count,
+- expected-answer token recall,
+- expected-answer string similarity,
+- abstention detection,
+- abstention correctness where applicable,
+- top retrieval score.
+
+These are deterministic local metrics. RAGAS-style scoring is prepared through export but not treated as the source of truth yet.
+
+## LangSmith Trace Wrapper
+
+Added:
+
+```text
+backend/src/docifer_backend/observability/langsmith.py
+```
+
+Implemented:
+
+- LangSmith trace context for evaluated questions,
+- project selection from settings,
+- tags and metadata for Phase 5 eval runs,
+- no-op behavior when tracing is disabled.
+
+Evaluated questions are traced when:
+
+```text
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY is set
+```
+
+## Evaluation Reporting
+
+Added:
+
+```text
+backend/src/docifer_backend/evaluation/reporting.py
+```
+
+Implemented writers for:
+
+```text
+results.jsonl
+summary.json
+report.md
+ragas_input.jsonl
+```
+
+The `ragas_input.jsonl` export includes question, answer, retrieved contexts, and ground truth for later RAGAS scoring.
+
+## Evaluation Runner
+
+Added:
+
+```text
+backend/src/docifer_backend/evaluation/runner.py
+```
+
+Implemented CLI:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase5_current_indexed_baseline --top-k 3
+```
+
+Supported options:
+
+- `--run-name`
+- `--doc-id`
+- `--limit`
+- `--top-k`
+- `--no-trace`
+- `--dataset`
+- `--output-root`
+
+The runner:
+
+- loads the golden questions,
+- resolves each question's document,
+- skips unindexed documents explicitly,
+- runs the Phase 4 text query service for indexed documents,
+- records LangSmith traces,
+- computes metrics,
+- writes run artifacts.
+
+## Evaluation Tests
+
+Added:
+
+```text
+backend/tests/test_evaluation.py
+```
+
+Covered:
+
+- golden dataset loader reads the 40 seeded rows,
+- metrics detect answer/citation/evidence behavior,
+- runner writes results, summary, report, and RAGAS export,
+- runner skips unindexed docs correctly.
+
+Tests use:
+
+- fake query service,
+- fake document registry,
+- no LangSmith calls.
+
+## Evaluation Run Artifacts
+
+Generated local eval runs under:
+
+```text
+evals/runs/
+```
+
+Runs created:
+
+```text
+phase5_doc005_baseline
+phase5_current_indexed_baseline
+```
+
+Each run contains:
+
+```text
+results.jsonl
+summary.json
+report.md
+ragas_input.jsonl
+```
+
+Generated run outputs are ignored by git through:
+
+```text
+evals/runs/
+```
+
+## Evaluation Documentation
+
+Added:
+
+```text
+docs/phase5-evaluation.md
+evals/README.md
+```
+
+Updated:
+
+```text
+backend/README.md
+.gitignore
+```
+
+Documented:
+
+- Phase 5 purpose,
+- configuration,
+- golden dataset shape,
+- runner commands,
+- output files,
+- current baseline metrics,
+- validation commands,
+- gate status.
+
+## Current Phase 5 Baseline
+
+Run:
+
+```text
+phase5_current_indexed_baseline
+```
+
+Current coverage:
+
+```text
+40 questions seen
+3 evaluated
+37 skipped_not_indexed
+0 failed
+```
+
+The 3 evaluated rows are the `DOC-005` World Development Report questions because that is the only document indexed in the current text baseline.
+
+Metrics:
+
+```json
+{
+  "answer_present_rate": 1.0,
+  "citation_presence_rate": 1.0,
+  "average_expected_answer_token_recall": 0.7917,
+  "abstention_correct_rate": null,
+  "latency_ms_p50": 1848.61,
+  "latency_ms_p95": 10847.39
+}
+```
+
+Report path:
+
+```text
+evals/runs/phase5_current_indexed_baseline/report.md
+```
+
+## Phase 5 Validation
+
+Commands run:
+
+```powershell
+backend\.venv\Scripts\pytest.exe backend\tests
+```
+
+Result:
+
+```text
+10 passed
+```
+
+Compile check:
+
+```powershell
+backend\.venv\Scripts\python.exe -m compileall -q backend\src backend\tests
+```
+
+Readiness check:
+
+```json
+{
+  "status": "ready",
+  "checks": {
+    "postgres": "ok",
+    "qdrant": "ok"
+  }
+}
+```
+
+Real LangSmith/OpenAI-backed validation was run for:
+
+- golden dataset loading,
+- indexed-document baseline evaluation,
+- OpenAI query execution,
+- LangSmith tracing,
+- artifact writing.
+
+## Phase 5 Gate Status
+
+Phase 5 is valid for the currently indexed baseline.
+
+Satisfied:
+
+- the golden QA dataset is loaded,
+- runnable indexed questions are evaluated,
+- unindexed documents are explicitly skipped,
+- metrics are computed and summarized,
+- evaluation artifacts are saved,
+- RAGAS-ready inputs are exported,
+- LangSmith traces are emitted for evaluated questions,
+- tests validate the core evaluation behavior.
+
+Phase 5 is not yet committed.
+
+Current uncommitted Phase 5 files include:
 
 ```text
 .env.example
+.gitignore
 backend/README.md
 backend/pyproject.toml
 backend/src/docifer_backend/config/settings.py
-backend/src/docifer_backend/main.py
-backend/src/docifer_backend/storage/database.py
-backend/src/docifer_backend/api/retrieval.py
-backend/src/docifer_backend/providers/base.py
-backend/src/docifer_backend/providers/factory.py
-backend/src/docifer_backend/providers/openai_provider.py
-backend/src/docifer_backend/retrieval/chunking.py
-backend/src/docifer_backend/retrieval/indexing.py
-backend/src/docifer_backend/retrieval/models.py
-backend/src/docifer_backend/retrieval/query.py
-backend/src/docifer_backend/retrieval/vector_store.py
-backend/src/docifer_backend/schemas/retrieval.py
-backend/tests/test_text_retrieval.py
-docs/phase4-text-rag.md
+backend/src/docifer_backend/evaluation/dataset.py
+backend/src/docifer_backend/evaluation/metrics.py
+backend/src/docifer_backend/evaluation/registry.py
+backend/src/docifer_backend/evaluation/reporting.py
+backend/src/docifer_backend/evaluation/runner.py
+backend/src/docifer_backend/observability/langsmith.py
+backend/tests/test_evaluation.py
+docs/phase5-evaluation.md
+evals/README.md
 docs/session-changes-2026-05-20.md
 ```
 
 Next phase remains locked until explicitly started:
 
 ```text
-Phase 5 - Evaluation v1 and Early LangSmith
+Phase 6 - Retrieval Quality Upgrades + Citation-Grounding Verifier
 ```
