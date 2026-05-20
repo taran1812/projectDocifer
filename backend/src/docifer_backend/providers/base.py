@@ -9,6 +9,16 @@ class GroundingEvidence:
     source: str
 
 
+@dataclass(frozen=True)
+class CitationGroundingVerdict:
+    verdict: str
+    supported_citation_ids: list[str]
+    weak_citation_ids: list[str]
+    unsupported_claims: list[str]
+    reasoning: str
+    revised_answer: str | None = None
+
+
 class AIProvider(Protocol):
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         ...
@@ -19,4 +29,13 @@ class AIProvider(Protocol):
         question: str,
         evidence: list[GroundingEvidence],
     ) -> str:
+        ...
+
+    def verify_citation_grounding(
+        self,
+        *,
+        question: str,
+        answer: str,
+        evidence: list[GroundingEvidence],
+    ) -> CitationGroundingVerdict:
         ...

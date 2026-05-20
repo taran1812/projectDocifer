@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from docifer_backend.ingestion.models import Document, DocumentIndexRun
 from docifer_backend.ingestion.status import IngestionStatus
-from docifer_backend.providers.base import GroundingEvidence
+from docifer_backend.providers.base import CitationGroundingVerdict, GroundingEvidence
 from docifer_backend.retrieval.chunking import build_text_chunks_from_canonical
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.models import TextChunkRecord
@@ -27,6 +27,22 @@ class FakeAIProvider:
         evidence: list[GroundingEvidence],
     ) -> str:
         return f"Countries should use staged growth strategies [{evidence[0].citation_id}]."
+
+    def verify_citation_grounding(
+        self,
+        *,
+        question: str,
+        answer: str,
+        evidence: list[GroundingEvidence],
+    ) -> CitationGroundingVerdict:
+        return CitationGroundingVerdict(
+            verdict="supported",
+            supported_citation_ids=["C1"],
+            weak_citation_ids=[],
+            unsupported_claims=[],
+            reasoning="The answer is supported by C1.",
+            revised_answer=None,
+        )
 
 
 @pytest.fixture()
@@ -109,6 +125,7 @@ def test_text_query_returns_answer_citations_and_evidence(tmp_path, session_fact
     outcome = TextQueryService(
         ai_provider=provider,
         qdrant_client=qdrant_client,
+        session_factory=session_factory,
         collection_name="test_text_chunks",
     ).query(
         question="What growth strategy should middle-income countries use?",
@@ -120,6 +137,90 @@ def test_text_query_returns_answer_citations_and_evidence(tmp_path, session_fact
     assert outcome.citations[0].citation_id == "C1"
     assert outcome.evidence
     assert outcome.debug["retrieved_count"] > 0
+    assert outcome.debug["unused_retrieved_count"] == len(outcome.evidence) - 1
+
+
+def test_bm25_query_retrieves_lexical_matches(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    with session_factory() as session:
+        session.add(
+            Document(
+                filename="sample.pdf",
+                source_path=source_path,
+                content_hash=content_hash,
+                file_size_bytes=100,
+            )
+        )
+        session.commit()
+
+    provider = FakeAIProvider()
+    qdrant_client = QdrantClient(":memory:")
+    TextIndexingService(
+        session_factory=session_factory,
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        collection_name="test_text_chunks",
+        initialize_schema=False,
+    ).index_canonical_document(canonical_path)
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="innovation",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="bm25",
+    )
+
+    assert outcome.evidence
+    assert outcome.evidence[0].retrieval_mode == "bm25"
+    assert outcome.evidence[0].lexical_score is not None
+
+
+def test_hybrid_query_exposes_score_breakdown_and_verifier(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    with session_factory() as session:
+        session.add(
+            Document(
+                filename="sample.pdf",
+                source_path=source_path,
+                content_hash=content_hash,
+                file_size_bytes=100,
+            )
+        )
+        session.commit()
+
+    provider = FakeAIProvider()
+    qdrant_client = QdrantClient(":memory:")
+    TextIndexingService(
+        session_factory=session_factory,
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        collection_name="test_text_chunks",
+        initialize_schema=False,
+    ).index_canonical_document(canonical_path)
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="middle-income innovation",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="hybrid",
+        verify_citations=True,
+    )
+
+    assert outcome.evidence
+    assert outcome.evidence[0].retrieval_mode == "hybrid"
+    assert outcome.evidence[0].hybrid_score is not None
+    assert outcome.citation_verification is not None
+    assert outcome.citation_verification.verdict == "supported"
 
 
 def write_canonical_artifacts(tmp_path: Path) -> tuple[Path, str, str]:

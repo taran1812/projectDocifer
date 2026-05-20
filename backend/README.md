@@ -87,3 +87,25 @@ backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name
 ```
 
 Evaluation outputs are written under `evals/runs/<run-name>/` and include `results.jsonl`, `summary.json`, `report.md`, and `ragas_input.jsonl`.
+
+## Phase 6 retrieval upgrades
+
+The `/query` endpoint supports retrieval modes:
+
+- `dense`
+- `bm25`
+- `hybrid`
+
+Example hybrid query with citation verification:
+
+```json
+{
+  "question": "Which strategy does the report recommend for upper-middle-income countries?",
+  "content_hash": "8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8",
+  "top_k": 3,
+  "retrieval_mode": "hybrid",
+  "verify_citations": true
+}
+```
+
+The response separates `retrieved_evidence`, `answer_citations`, and `unused_retrieved_evidence`, and includes a citation-grounding verdict when verification is enabled.

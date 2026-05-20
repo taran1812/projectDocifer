@@ -5,6 +5,7 @@ from docifer_backend.retrieval.query import TextQueryService
 from docifer_backend.schemas.retrieval import (
     CitationResponse,
     EvidenceResponse,
+    CitationVerificationResponse,
     QueryRequest,
     QueryResponse,
     TextIndexRequest,
@@ -29,28 +30,52 @@ def query_text(request: QueryRequest) -> QueryResponse:
         question=request.question,
         content_hash=request.content_hash,
         top_k=request.top_k,
+        retrieval_mode=request.retrieval_mode,
+        verify_citations=request.verify_citations,
     )
-    citation_by_id = {citation.citation_id: citation for citation in outcome.citations}
-    evidence = []
-    for index, chunk in enumerate(outcome.evidence, start=1):
-        citation_id = f"C{index}"
-        citation = citation_by_id[citation_id]
-        evidence.append(
-            EvidenceResponse(
-                citation_id=citation_id,
-                chunk_id=chunk.chunk_id,
-                score=chunk.score,
-                text=chunk.text,
-                source_path=citation.source_path,
-                source_artifact_path=citation.source_artifact_path,
-                page_start=citation.page_start,
-                page_end=citation.page_end,
-            )
-        )
+    evidence = _evidence_responses(outcome.evidence)
+    unused_chunk_ids = {chunk.chunk_id for chunk in outcome.unused_evidence}
+    unused_evidence = _evidence_responses(
+        outcome.evidence,
+        include_chunk_ids=unused_chunk_ids,
+    )
+    citations = [CitationResponse(**citation.__dict__) for citation in outcome.citations]
 
     return QueryResponse(
         answer=outcome.answer,
-        citations=[CitationResponse(**citation.__dict__) for citation in outcome.citations],
+        citations=citations,
+        answer_citations=citations,
         evidence=evidence,
+        retrieved_evidence=evidence,
+        unused_retrieved_evidence=unused_evidence,
+        citation_verification=(
+            CitationVerificationResponse(**outcome.citation_verification.__dict__)
+            if outcome.citation_verification is not None
+            else None
+        ),
         debug=outcome.debug,
     )
+
+
+def _evidence_responses(chunks, *, include_chunk_ids: set[str] | None = None) -> list[EvidenceResponse]:
+    responses = []
+    for index, chunk in enumerate(chunks, start=1):
+        if include_chunk_ids is not None and chunk.chunk_id not in include_chunk_ids:
+            continue
+        responses.append(
+            EvidenceResponse(
+                citation_id=f"C{index}",
+                chunk_id=chunk.chunk_id,
+                score=chunk.score,
+                dense_score=chunk.dense_score,
+                lexical_score=chunk.lexical_score,
+                hybrid_score=chunk.hybrid_score,
+                retrieval_mode=chunk.retrieval_mode,
+                text=chunk.text,
+                source_path=chunk.source_path,
+                source_artifact_path=chunk.source_artifact_path,
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+            )
+        )
+    return responses

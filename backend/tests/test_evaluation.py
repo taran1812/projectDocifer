@@ -27,7 +27,15 @@ class FakeRegistry:
 
 
 class FakeQueryService:
-    def query(self, *, question: str, content_hash: str, top_k: int):
+    def query(
+        self,
+        *,
+        question: str,
+        content_hash: str,
+        top_k: int,
+        retrieval_mode: str = "dense",
+        verify_citations: bool = False,
+    ):
         return SimpleNamespace(
             answer="Middle-income countries should move from 1i to 2i and then 3i. [C1]",
             citations=[
@@ -40,9 +48,11 @@ class FakeQueryService:
             evidence=[
                 SimpleNamespace(
                     chunk_id="chunk-1",
+                    score=0.91,
                     text="The report describes 1i, 2i, and 3i strategies.",
                 )
             ],
+            citation_verification=None,
         )
 
 

@@ -67,6 +67,18 @@ Run only `DOC-005`:
 backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase5_doc005_baseline --doc-id DOC-005 --top-k 3
 ```
 
+Compare retrieval modes:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase6_doc005_bm25 --doc-id DOC-005 --top-k 3 --retrieval-mode bm25
+```
+
+Run hybrid retrieval with citation verification:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase6_doc005_hybrid_verifier --doc-id DOC-005 --top-k 3 --retrieval-mode hybrid --verify-citations
+```
+
 Disable LangSmith tracing:
 
 ```powershell

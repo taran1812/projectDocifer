@@ -1,5 +1,7 @@
 from docifer_backend.config.settings import get_settings
-from docifer_backend.providers.base import GroundingEvidence
+import json
+
+from docifer_backend.providers.base import CitationGroundingVerdict, GroundingEvidence
 
 
 class OpenAIProvider:
@@ -61,3 +63,66 @@ class OpenAIProvider:
         if output_text:
             return output_text.strip()
         return str(response).strip()
+
+    def verify_citation_grounding(
+        self,
+        *,
+        question: str,
+        answer: str,
+        evidence: list[GroundingEvidence],
+    ) -> CitationGroundingVerdict:
+        evidence_text = "\n\n".join(
+            f"[{item.citation_id}] Source: {item.source}\n{item.text}"
+            for item in evidence
+        )
+        response = self.client.responses.create(
+            model=self.answer_model,
+            instructions=(
+                "You are Docifer's citation-grounding verifier. Compare the "
+                "answer against the evidence. Return only valid JSON with keys: "
+                "verdict, supported_citation_ids, weak_citation_ids, "
+                "unsupported_claims, reasoning, revised_answer. Verdict must be "
+                "supported, partially_supported, or unsupported. If revision is "
+                "not needed, revised_answer must be null."
+            ),
+            input=(
+                f"Question:\n{question}\n\n"
+                f"Answer:\n{answer}\n\n"
+                f"Evidence:\n{evidence_text}\n\n"
+                "Verify whether the answer's cited claims are semantically supported."
+            ),
+            max_output_tokens=700,
+        )
+
+        output_text = (getattr(response, "output_text", None) or "").strip()
+        try:
+            payload = json.loads(_strip_json_fence(output_text))
+        except json.JSONDecodeError:
+            return CitationGroundingVerdict(
+                verdict="partially_supported",
+                supported_citation_ids=[],
+                weak_citation_ids=[],
+                unsupported_claims=[],
+                reasoning=f"Verifier returned non-JSON output: {output_text[:500]}",
+                revised_answer=None,
+            )
+
+        return CitationGroundingVerdict(
+            verdict=str(payload.get("verdict") or "partially_supported"),
+            supported_citation_ids=list(payload.get("supported_citation_ids") or []),
+            weak_citation_ids=list(payload.get("weak_citation_ids") or []),
+            unsupported_claims=list(payload.get("unsupported_claims") or []),
+            reasoning=str(payload.get("reasoning") or ""),
+            revised_answer=payload.get("revised_answer"),
+        )
+
+
+def _strip_json_fence(text: str) -> str:
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return text

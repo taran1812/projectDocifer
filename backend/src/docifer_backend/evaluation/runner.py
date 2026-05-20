@@ -41,6 +41,8 @@ class EvaluationResult:
     skip_reason: str | None = None
     error_message: str | None = None
     content_hash: str | None = None
+    retrieval_mode: str = "dense"
+    verifier_verdict: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,8 @@ class EvaluationRunner:
         doc_ids: set[str] | None = None,
         limit: int | None = None,
         top_k: int = 4,
+        retrieval_mode: str = "dense",
+        verify_citations: bool = False,
     ) -> EvaluationRunOutcome:
         resolved_run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         output_dir = self.output_root / resolved_run_name
@@ -101,7 +105,15 @@ class EvaluationRunner:
                 )
                 continue
 
-            results.append(self._evaluate_question(question, doc_ref, top_k=top_k))
+            results.append(
+                self._evaluate_question(
+                    question,
+                    doc_ref,
+                    top_k=top_k,
+                    retrieval_mode=retrieval_mode,
+                    verify_citations=verify_citations,
+                )
+            )
 
         serializable_results = [asdict(result) for result in results]
         summary = build_summary(results)
@@ -127,6 +139,8 @@ class EvaluationRunner:
         doc_ref: IndexedDocumentRef,
         *,
         top_k: int,
+        retrieval_mode: str,
+        verify_citations: bool,
     ) -> EvaluationResult:
         query_service = self._get_query_service()
         trace_inputs = {
@@ -136,6 +150,8 @@ class EvaluationRunner:
             "question": question.question,
             "content_hash": doc_ref.content_hash,
             "top_k": top_k,
+            "retrieval_mode": retrieval_mode,
+            "verify_citations": verify_citations,
         }
         started = time.perf_counter()
         try:
@@ -154,9 +170,11 @@ class EvaluationRunner:
                     question=question.question,
                     content_hash=doc_ref.content_hash,
                     top_k=top_k,
+                    retrieval_mode=retrieval_mode,
+                    verify_citations=verify_citations,
                 )
                 latency_ms = round((time.perf_counter() - started) * 1000, 2)
-                retrieval_scores = [citation.score for citation in outcome.citations]
+                retrieval_scores = [chunk.score for chunk in outcome.evidence]
                 metrics = score_answer(
                     question=question,
                     answer=outcome.answer,
@@ -180,6 +198,12 @@ class EvaluationRunner:
                     metrics=asdict(metrics),
                     latency_ms=latency_ms,
                     content_hash=doc_ref.content_hash,
+                    retrieval_mode=retrieval_mode,
+                    verifier_verdict=(
+                        outcome.citation_verification.verdict
+                        if outcome.citation_verification is not None
+                        else None
+                    ),
                 )
                 trace.add_outputs(
                     {
@@ -187,6 +211,8 @@ class EvaluationRunner:
                         "citation_ids": result.citation_ids,
                         "metrics": result.metrics,
                         "latency_ms": latency_ms,
+                        "retrieval_mode": retrieval_mode,
+                        "verifier_verdict": result.verifier_verdict,
                     }
                 )
                 return result
@@ -252,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--doc-id", action="append", dest="doc_ids")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--top-k", type=int, default=4)
+    parser.add_argument("--retrieval-mode", default="dense", choices=["dense", "bm25", "hybrid"])
+    parser.add_argument("--verify-citations", action="store_true")
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args(argv)
 
@@ -265,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:
         doc_ids=set(args.doc_ids) if args.doc_ids else None,
         limit=args.limit,
         top_k=args.top_k,
+        retrieval_mode=args.retrieval_mode,
+        verify_citations=args.verify_citations,
     )
     print(json.dumps(asdict(outcome), ensure_ascii=False, indent=2, sort_keys=True))
     return 0

@@ -19,6 +19,8 @@ class QueryRequest(BaseModel):
     question: str
     content_hash: str | None = None
     top_k: int = Field(default=4, ge=1, le=10)
+    retrieval_mode: str = Field(default="dense", pattern="^(dense|bm25|hybrid)$")
+    verify_citations: bool = False
 
 
 class CitationResponse(BaseModel):
@@ -29,12 +31,19 @@ class CitationResponse(BaseModel):
     page_start: int | None
     page_end: int | None
     score: float
+    dense_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
 
 
 class EvidenceResponse(BaseModel):
     citation_id: str
     chunk_id: str
     score: float
+    dense_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
+    retrieval_mode: str
     text: str
     source_path: str
     source_artifact_path: str
@@ -42,8 +51,21 @@ class EvidenceResponse(BaseModel):
     page_end: int | None
 
 
+class CitationVerificationResponse(BaseModel):
+    verdict: str
+    supported_citation_ids: list[str]
+    weak_citation_ids: list[str]
+    unsupported_claims: list[str]
+    reasoning: str
+    revised_answer: str | None = None
+
+
 class QueryResponse(BaseModel):
     answer: str
     citations: list[CitationResponse]
+    answer_citations: list[CitationResponse]
     evidence: list[EvidenceResponse]
+    retrieved_evidence: list[EvidenceResponse]
+    unused_retrieved_evidence: list[EvidenceResponse]
+    citation_verification: CitationVerificationResponse | None = None
     debug: dict

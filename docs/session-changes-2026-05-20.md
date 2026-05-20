@@ -9,6 +9,7 @@ Implemented and validated:
 - **Phase 3 - Document Ingestion**
 - **Phase 4 - Text RAG Baseline**
 - **Phase 5 - Evaluation v1 and Early LangSmith**
+- **Phase 6 - Retrieval Quality Upgrades and Citation Grounding**
 
 The project now has a working ingestion pipeline that can:
 
@@ -1128,6 +1129,14 @@ Real LangSmith/OpenAI-backed validation was run for:
 - LangSmith tracing,
 - artifact writing.
 
+## Phase 5 Commit
+
+Committed as:
+
+```text
+6775bea Implement phase 5 evaluation harness
+```
+
 ## Phase 5 Gate Status
 
 Phase 5 is valid for the currently indexed baseline.
@@ -1143,30 +1152,420 @@ Satisfied:
 - LangSmith traces are emitted for evaluated questions,
 - tests validate the core evaluation behavior.
 
-Phase 5 is not yet committed.
+Phase 5 is committed.
 
-Current uncommitted Phase 5 files include:
+Phase 5 unlocked the next phase:
 
 ```text
-.env.example
-.gitignore
-backend/README.md
-backend/pyproject.toml
-backend/src/docifer_backend/config/settings.py
-backend/src/docifer_backend/evaluation/dataset.py
-backend/src/docifer_backend/evaluation/metrics.py
-backend/src/docifer_backend/evaluation/registry.py
-backend/src/docifer_backend/evaluation/reporting.py
+Phase 6 - Retrieval Quality Upgrades + Citation-Grounding Verifier
+```
+
+---
+
+# Phase 6 Changes - Retrieval Quality Upgrades and Citation Grounding
+
+Phase 6 upgraded the text RAG baseline with BM25-style retrieval, hybrid ranking, cleaner citation semantics, and a citation-grounding verifier.
+
+## Phase 6 Retrieval Modes
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/query.py
+backend/src/docifer_backend/schemas/retrieval.py
+backend/src/docifer_backend/api/retrieval.py
+```
+
+The `/query` endpoint now supports:
+
+```text
+dense
+bm25
+hybrid
+```
+
+`dense` preserves the Phase 4 OpenAI embedding + Qdrant baseline.
+
+`bm25` runs local lexical retrieval over persisted `text_chunks`.
+
+`hybrid` combines normalized dense and BM25 scores.
+
+## BM25 Retrieval
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/bm25.py
+```
+
+Implemented:
+
+- tokenizer,
+- document frequency tracking,
+- BM25 scoring,
+- top-k lexical retrieval,
+- optional content-hash filtering,
+- conversion back into shared `RetrievedChunk` evidence objects.
+
+No new external package was required for BM25.
+
+## Hybrid Ranking
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/hybrid.py
+```
+
+Implemented:
+
+- dense result normalization,
+- lexical result normalization,
+- weighted score fusion,
+- combined ranked evidence output.
+
+Evidence now exposes:
+
+- `dense_score`,
+- `lexical_score`,
+- `hybrid_score`,
+- `retrieval_mode`.
+
+## Citation Semantics Cleanup
+
+Updated query output so final citations are no longer just every retrieved chunk.
+
+The response now separates:
+
+- `retrieved_evidence`,
+- `answer_citations`,
+- `unused_retrieved_evidence`.
+
+The existing `citations` and `evidence` fields remain for compatibility:
+
+- `citations` now mirrors final answer citations,
+- `evidence` mirrors retrieved evidence.
+
+This fixes the Phase 4 issue where retrieved but unused chunks appeared as final citations.
+
+## Citation-Grounding Verifier
+
+Updated provider contracts:
+
+```text
+backend/src/docifer_backend/providers/base.py
+backend/src/docifer_backend/providers/openai_provider.py
+```
+
+Added:
+
+```text
+CitationGroundingVerdict
+verify_citation_grounding(...)
+```
+
+When `verify_citations` is true, Docifer sends the question, answer, and retrieved evidence to an OpenAI-backed verifier.
+
+Verifier output includes:
+
+- `verdict`,
+- `supported_citation_ids`,
+- `weak_citation_ids`,
+- `unsupported_claims`,
+- `reasoning`,
+- optional `revised_answer`.
+
+If the verifier returns `unsupported`, Docifer replaces the answer with a revised answer or an abstention message.
+
+## API Schema Additions
+
+Updated:
+
+```text
+backend/src/docifer_backend/schemas/retrieval.py
+```
+
+Request additions:
+
+```json
+{
+  "retrieval_mode": "hybrid",
+  "verify_citations": true
+}
+```
+
+Response additions:
+
+```text
+answer_citations
+retrieved_evidence
+unused_retrieved_evidence
+citation_verification
+dense_score
+lexical_score
+hybrid_score
+retrieval_mode
+```
+
+## Evaluation Runner Updates
+
+Updated:
+
+```text
 backend/src/docifer_backend/evaluation/runner.py
-backend/src/docifer_backend/observability/langsmith.py
-backend/tests/test_evaluation.py
 docs/phase5-evaluation.md
-evals/README.md
+```
+
+Added CLI options:
+
+```text
+--retrieval-mode dense|bm25|hybrid
+--verify-citations
+```
+
+This allows Phase 5/6 comparisons without changing the evaluation harness.
+
+## Phase 6 Tests
+
+Updated:
+
+```text
+backend/tests/test_text_retrieval.py
+backend/tests/test_evaluation.py
+```
+
+Added coverage for:
+
+- BM25 lexical retrieval,
+- hybrid retrieval score breakdown,
+- citation verifier plumbing,
+- unused retrieved evidence counts,
+- evaluation runner compatibility with retrieval modes.
+
+## Phase 6 Documentation
+
+Added:
+
+```text
+docs/phase6-retrieval-grounding.md
+```
+
+Updated:
+
+```text
+backend/README.md
+docs/phase5-evaluation.md
+docs/session-changes-2026-05-20.md
+```
+
+Documented:
+
+- retrieval modes,
+- API schema changes,
+- verifier behavior,
+- evaluation comparison commands,
+- cross-encoder reranker decision,
+- validation results.
+
+## Cross-Encoder Reranker Decision
+
+A heavyweight cross-encoder or BGE-style reranker was not installed in this pass.
+
+Reason:
+
+- current indexed coverage is only one small document and three runnable golden questions,
+- the extra model dependency and first-run download cost are not justified by this slice,
+- BM25 + hybrid retrieval already gives the project a measurable retrieval-quality upgrade without adding a large local model dependency.
+
+This is an explicit Phase 6 v1 decision. A cross-encoder reranker should be reconsidered after more documents are indexed and the eval harness has enough examples to measure the tradeoff.
+
+## Real Phase 6 Validation
+
+BM25 query validated:
+
+```text
+Question: Which strategy does the report recommend for upper-middle-income countries?
+Answer: For upper-middle-income countries, the report recommends shifting to the “3 i” strategy: investment + infusion + innovation. [C2]
+```
+
+Hybrid + verifier query validated:
+
+```text
+Question: What three actions does the report associate with successful transitions from middle- to high-income status?
+Verifier verdict: supported
+```
+
+FastAPI `/query` schema validated with:
+
+```json
+{
+  "retrieval_mode": "hybrid",
+  "verify_citations": true
+}
+```
+
+Validated response included:
+
+- final answer,
+- one answer citation,
+- three retrieved evidence items,
+- two unused retrieved evidence items,
+- verifier verdict `supported`,
+- dense/lexical/hybrid score breakdowns.
+
+## Phase 6 Evaluation Comparisons
+
+Runs created:
+
+```text
+phase6_doc005_dense
+phase6_doc005_bm25
+phase6_doc005_hybrid_verifier
+```
+
+Current results:
+
+| Mode | Evaluated | Citation Presence | Avg Token Recall | P50 Latency ms | P95 Latency ms |
+|---|---:|---:|---:|---:|---:|
+| dense | 3 | 1.0 | 0.875 | 2095.07 | 3566.15 |
+| bm25 | 3 | 1.0 | 0.7917 | 1145.56 | 2434.81 |
+| hybrid + verifier | 3 | 1.0 | 0.875 | 3858.13 | 4137.9 |
+
+Interpretation:
+
+- dense remains strong on the current small text slice,
+- BM25 is faster and useful for exact lexical matches,
+- hybrid + verifier preserves answer quality while adding semantic grounding verdicts,
+- broader conclusions require more indexed documents.
+
+## Phase 6 Validation Commands
+
+Tests:
+
+```powershell
+backend\.venv\Scripts\pytest.exe backend\tests
+```
+
+Result:
+
+```text
+12 passed
+```
+
+Compile check:
+
+```powershell
+backend\.venv\Scripts\python.exe -m compileall -q backend\src backend\tests
+```
+
+Readiness check:
+
+```json
+{
+  "status": "ready",
+  "checks": {
+    "postgres": "ok",
+    "qdrant": "ok"
+  }
+}
+```
+
+Real OpenAI-backed validation was run for:
+
+- BM25 retrieval answer generation,
+- hybrid retrieval answer generation,
+- citation-grounding verification,
+- FastAPI `/query` schema,
+- dense / BM25 / hybrid-verifier eval comparisons.
+
+## Phase 6 Browser/API Inspection
+
+The FastAPI server had stopped when the user tried to open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+The backend was restarted outside the sandbox so it stays available to the in-app browser.
+
+Validated:
+
+```text
+GET /health -> 200
+GET /docs -> 200
+```
+
+Running processes included:
+
+```text
+uvicorn.exe
+python.exe
+```
+
+Recommended Phase 6 inspection request in Swagger UI:
+
+```json
+{
+  "question": "Which strategy does the report recommend for upper-middle-income countries?",
+  "content_hash": "8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8",
+  "top_k": 3,
+  "retrieval_mode": "hybrid",
+  "verify_citations": true
+}
+```
+
+Fields to inspect:
+
+- `answer`
+- `answer_citations`
+- `retrieved_evidence`
+- `unused_retrieved_evidence`
+- `citation_verification`
+- `debug.retrieval_mode`
+- `debug.unused_retrieved_count`
+- `dense_score`
+- `lexical_score`
+- `hybrid_score`
+
+## Phase 6 Gate Status
+
+Phase 6 is valid for the currently indexed text baseline.
+
+Satisfied:
+
+- dense baseline remains runnable,
+- BM25 retrieval works,
+- hybrid retrieval works,
+- answer citations are separated from retrieved evidence,
+- unused retrieved evidence is exposed,
+- citation-grounding verifier works,
+- evaluation runner compares retrieval modes,
+- cross-encoder reranker decision is documented with rationale.
+
+Phase 6 is not yet committed.
+
+Current uncommitted Phase 6 files include:
+
+```text
+backend/README.md
+backend/src/docifer_backend/api/retrieval.py
+backend/src/docifer_backend/evaluation/runner.py
+backend/src/docifer_backend/providers/base.py
+backend/src/docifer_backend/providers/openai_provider.py
+backend/src/docifer_backend/retrieval/bm25.py
+backend/src/docifer_backend/retrieval/hybrid.py
+backend/src/docifer_backend/retrieval/query.py
+backend/src/docifer_backend/retrieval/vector_store.py
+backend/src/docifer_backend/schemas/retrieval.py
+backend/tests/test_evaluation.py
+backend/tests/test_text_retrieval.py
+docs/phase5-evaluation.md
+docs/phase6-retrieval-grounding.md
 docs/session-changes-2026-05-20.md
 ```
 
 Next phase remains locked until explicitly started:
 
 ```text
-Phase 6 - Retrieval Quality Upgrades + Citation-Grounding Verifier
+Phase 7 - Tables + Visual Retrieval
 ```

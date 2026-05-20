@@ -11,6 +11,10 @@ from docifer_backend.retrieval.chunking import TextChunk
 class RetrievedChunk:
     chunk_id: str
     score: float
+    dense_score: float | None
+    lexical_score: float | None
+    hybrid_score: float | None
+    retrieval_mode: str
     text: str
     filename: str
     source_path: str
@@ -110,6 +114,10 @@ def search_text_chunks(
             RetrievedChunk(
                 chunk_id=str(payload["chunk_id"]),
                 score=float(point.score),
+                dense_score=float(point.score),
+                lexical_score=None,
+                hybrid_score=None,
+                retrieval_mode="dense",
                 text=str(payload["text"]),
                 filename=str(payload["filename"]),
                 source_path=str(payload["source_path"]),
