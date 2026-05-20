@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     llm_provider: str = "openai"
 
     openai_api_key: str | None = None
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_answer_model: str = "gpt-5.4-mini"
 
     google_cloud_project: str | None = None
     google_cloud_location: str = "us-central1"
@@ -32,6 +34,7 @@ class Settings(BaseSettings):
     raw_pdf_dir: str = "datasets/raw_pdfs"
     processed_data_dir: str = "datasets/processed"
     artifacts_dir: str = "artifacts"
+    qdrant_text_collection: str = "docifer_text_chunks"
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[4] / ".env",
