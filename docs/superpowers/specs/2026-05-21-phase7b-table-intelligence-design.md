@@ -114,7 +114,18 @@ docifer_backend/
 - Structured: `<content_hash[:12]>:table:<index:04d>` → `8109582811fe:table:0007`
 - Fallback text: `<content_hash[:12]>:table_text:<chunk_idx:04d>:<span_idx:02d>` → `2a3ee9733eaf:table_text:0882:01`
 
-**Idempotency:** delete existing records for `(document_id, content_hash)` then insert fresh on every (re)index.
+**DB constraints:**
+```sql
+UNIQUE(table_id)
+INDEX(content_hash)
+INDEX(document_id, content_hash)
+INDEX(qdrant_point_id)
+```
+
+**Idempotency (three cases):**
+- `force_reindex=False` + successful existing run + records exist → **reuse** (no extraction)
+- `force_reindex=False` + no successful run → **index fresh**
+- `force_reindex=True` → **delete old records + reindex from scratch**
 
 ---
 
@@ -276,7 +287,9 @@ Payload per point:
   "evidence_type": "table-like text",
   "extraction_method": "table_like_text",
   "span_hash": "...",
-  "source_chunk_id": "..."
+  "source_chunk_id": "...",
+  "source_path": "...",
+  "source_artifact_path": "..."
 }
 ```
 
@@ -326,6 +339,7 @@ v1 primary mode: `table_hybrid`
 **Guard:** only return records where `qdrant_point_id IS NOT NULL` (failed-index records excluded).
 
 **`content_hash` filter:** always applied when provided — scopes results to one document.
+When `content_hash=null`, table retrieval searches all indexed documents (global scope). Debug output must include `"content_hash_scope": "all"` in this case. Phase 7B validation tests should use a specific `content_hash` to keep results controlled.
 
 ### 9.2 Boosting rules
 
@@ -333,6 +347,16 @@ Boost table candidates when question contains:
 - Exact year match (e.g. `2025`, `2024`)
 - Financial terms: `net income`, `revenue`, `segment`, `assets`, `liabilities`
 - Row labels matching section headings
+
+### 9.2b BM25 lexical corpus text
+
+BM25 scores over the following concatenated field per record:
+
+```
+{title} {caption} {section_heading} {raw_text} {markdown_table}
+```
+
+Null fields omitted. Do not score over `structured_json` directly — serialize rows to plain text first if included.
 
 ### 9.3 `TableQueryResult` schema
 
@@ -352,6 +376,8 @@ class TableQueryResult:
     table_readiness: str
     document_id: str
     content_hash: str
+    source_path: str                  # raw PDF source path
+    source_artifact_path: str         # canonical.json path
     source_chunk_id: str | None
 ```
 
@@ -393,7 +419,11 @@ Debug output includes:
 {
   "table_intent_detected": true,
   "table_intent_score": 4,
-  "table_intent_matches": ["net income", "segment", "2025", "highest"]
+  "table_intent_matches": ["net income", "segment", "2025", "highest"],
+  "content_hash_scope": "specific",
+  "table_retrieval_latency_ms": 123,
+  "table_indexed_collection": "docifer_table_evidence",
+  "table_retrieved_count": 4
 }
 ```
 
@@ -573,7 +603,19 @@ Phase 7B is complete when:
 
 ---
 
-## 14. Risks
+## 14. Phase 7B Scope Framing
+
+Phase 7B improves **retrieval and evidence packaging**, not deterministic table computation. `reasoning.py` is deferred.
+
+If JPMorgan QA-008 succeeds, the correct framing is:
+
+> "The correct table evidence is retrieved at lower table depth and the LLM can answer from it."
+
+Not: "Docifer computes over tables." That distinction matters — success depends on retrieval quality delivering the right evidence to the model, not on structured computation.
+
+---
+
+## 15. Risks
 
 | Risk | Mitigation |
 |---|---|
