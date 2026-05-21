@@ -13,7 +13,7 @@ from docifer_backend.config.paths import display_path, resolve_project_path
 from docifer_backend.config.settings import get_settings
 from docifer_backend.ingestion.file_info import PdfFileInfo, inspect_pdf_file
 from docifer_backend.ingestion.models import Document, IngestionJob, utc_now
-from docifer_backend.ingestion.parser import DoclingParser, DocumentParser, ParsedDocument
+from docifer_backend.ingestion.parser import AutoPdfParser, DocumentParser, ParsedDocument
 from docifer_backend.ingestion.status import IngestionStatus
 from docifer_backend.storage.database import create_database_schema, get_session_factory
 
@@ -43,7 +43,10 @@ class IngestionService:
 
         settings = get_settings()
         self.session_factory = session_factory or get_session_factory()
-        self.parser = parser or DoclingParser()
+        self.parser = parser or AutoPdfParser(
+            backend=settings.pdf_parser_backend,
+            docling_max_file_size_bytes=settings.docling_max_file_size_bytes,
+        )
         self.processed_data_dir = resolve_project_path(
             processed_data_dir or settings.processed_data_dir
         )

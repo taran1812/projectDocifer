@@ -1542,27 +1542,235 @@ Satisfied:
 - evaluation runner compares retrieval modes,
 - cross-encoder reranker decision is documented with rationale.
 
-Phase 6 is not yet committed.
-
-Current uncommitted Phase 6 files include:
+Phase 6 was committed as:
 
 ```text
-backend/README.md
-backend/src/docifer_backend/api/retrieval.py
-backend/src/docifer_backend/evaluation/runner.py
-backend/src/docifer_backend/providers/base.py
-backend/src/docifer_backend/providers/openai_provider.py
-backend/src/docifer_backend/retrieval/bm25.py
-backend/src/docifer_backend/retrieval/hybrid.py
-backend/src/docifer_backend/retrieval/query.py
-backend/src/docifer_backend/retrieval/vector_store.py
-backend/src/docifer_backend/schemas/retrieval.py
-backend/tests/test_evaluation.py
-backend/tests/test_text_retrieval.py
-docs/phase5-evaluation.md
-docs/phase6-retrieval-grounding.md
-docs/session-changes-2026-05-20.md
+5f38a46 Implement phase 6 retrieval grounding upgrades
 ```
+
+Phase 6 unlocked the corpus-expansion checkpoint:
+
+```text
+Phase 6.5 - Expanded Corpus Validation
+```
+
+---
+
+# Phase 6.5 Changes - Expanded Corpus Validation
+
+Phase 6.5 expanded the indexed corpus before Phase 7 to check whether the Phase 6 hybrid retrieval and citation-grounding path still behaves well beyond the single World Bank PDF.
+
+## Phase 6.5 Ingestion Finding
+
+The first attempts to ingest larger annual-report PDFs through the default Docling path exposed a local robustness issue:
+
+```text
+Stage preprocess failed ... std::bad_alloc
+```
+
+This happened during Docling preprocessing on the Microsoft and JPMorgan reports. The affected failed jobs were recorded in PostgreSQL instead of being hidden.
+
+## Phase 6.5 Parser Fallback
+
+Updated:
+
+```text
+backend/src/docifer_backend/ingestion/parser.py
+backend/src/docifer_backend/ingestion/service.py
+backend/src/docifer_backend/config/settings.py
+backend/pyproject.toml
+backend/uv.lock
+```
+
+Added:
+
+- `AutoPdfParser`
+- `PdfiumTextParser`
+- parser backend settings:
+  - `PDF_PARSER_BACKEND=auto`
+  - `DOCLING_MAX_FILE_SIZE_BYTES=1000000`
+- direct runtime dependency:
+  - `pypdfium2>=5.8.0`
+
+Behavior:
+
+- small PDFs continue to use Docling by default,
+- larger PDFs use native `pypdfium2` text extraction,
+- page-level provenance is preserved for citations,
+- canonical artifacts remain compatible with existing chunking and indexing.
+
+## Phase 6.5 Indexing Robustness
+
+Updated:
+
+```text
+backend/src/docifer_backend/providers/openai_provider.py
+backend/src/docifer_backend/retrieval/indexing.py
+backend/src/docifer_backend/retrieval/vector_store.py
+backend/src/docifer_backend/config/settings.py
+```
+
+Added:
+
+- OpenAI embedding batching via `OPENAI_EMBEDDING_BATCH_SIZE=64`,
+- Qdrant upsert batching via `QDRANT_UPSERT_BATCH_SIZE=128`.
+
+Reason:
+
+- JPMorgan produced 1235 chunks,
+- a single large Qdrant upsert timed out,
+- batched Qdrant writes fixed the issue.
+
+## Phase 6.5 Eval Metric Adjustment
+
+Updated:
+
+```text
+backend/src/docifer_backend/evaluation/metrics.py
+```
+
+Expanded abstention detection for valid phrases such as:
+
+- `does not include`
+- `does not provide`
+- `no evidence`
+- `not available`
+- `not found`
+- `not mention`
+
+This fixed an eval false negative where a valid abstention was phrased differently from the original marker list.
+
+## Phase 6.5 Tests
+
+Added:
+
+```text
+backend/tests/test_ingestion_parser.py
+```
+
+Covered:
+
+- large PDFs route to the text parser,
+- Docling failures fall back to text extraction,
+- invalid parser backend settings are rejected.
+
+Validated full test suite:
+
+```text
+15 passed
+```
+
+## Phase 6.5 Indexed Corpus
+
+Indexed additional documents:
+
+| Doc ID | PDF | Parser | Chunks |
+|---|---|---|---:|
+| DOC-001 | `2025_AnnualReport.pdf` | `pypdfium2-text` | 226 |
+| DOC-003 | `JPChaseannualreport-2025.pdf` | `pypdfium2-text` | 1235 |
+| DOC-007 | `OECD.pdf` | `pypdfium2-text` | 1627 |
+
+Existing indexed document retained:
+
+| Doc ID | PDF | Parser | Chunks |
+|---|---|---|---:|
+| DOC-005 | `Worldbank2024.pdf` | `docling` | 5 |
+
+## Phase 6.5 Evaluation Runs
+
+Primary hybrid-verifier run:
+
+```text
+phase6_5_expanded_corpus_hybrid
+```
+
+Command:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase6_5_expanded_corpus_hybrid --doc-id DOC-001 --doc-id DOC-003 --doc-id DOC-005 --doc-id DOC-007 --top-k 4 --retrieval-mode hybrid --verify-citations
+```
+
+Result:
+
+```json
+{
+  "evaluated": 15,
+  "failed": 0,
+  "skipped": 25,
+  "citation_presence_rate": 0.8667,
+  "average_expected_answer_token_recall": 0.6566,
+  "abstention_correct_rate": 0.75,
+  "latency_ms_p50": 3018.58,
+  "latency_ms_p95": 6406.1
+}
+```
+
+Top-k ablation:
+
+```text
+phase6_5_expanded_corpus_hybrid_top8
+```
+
+Command:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase6_5_expanded_corpus_hybrid_top8 --doc-id DOC-001 --doc-id DOC-003 --doc-id DOC-005 --doc-id DOC-007 --top-k 8 --retrieval-mode hybrid --verify-citations
+```
+
+Result:
+
+```json
+{
+  "evaluated": 15,
+  "failed": 0,
+  "skipped": 25,
+  "citation_presence_rate": 0.8,
+  "average_expected_answer_token_recall": 0.6846,
+  "abstention_correct_rate": 1.0,
+  "latency_ms_p50": 3049.2,
+  "latency_ms_p95": 4486.17
+}
+```
+
+Run artifacts:
+
+```text
+evals/runs/phase6_5_expanded_corpus_hybrid/
+evals/runs/phase6_5_expanded_corpus_hybrid_top8/
+```
+
+## Phase 6.5 Key Finding
+
+Hybrid retrieval plus citation verification works across the expanded four-document text corpus.
+
+The main observed weakness is table reasoning at low retrieval depth. At `top_k=4`, QA-008 missed the exact JPMorgan segment-results table even though that table was indexed. At `top_k=8`, the correct table entered the evidence set and the system answered correctly:
+
+```text
+Commercial & Investment Bank had the highest 2025 net income among the three reportable business segments, at $27,761 million.
+```
+
+## Phase 6.5 Documentation
+
+Added:
+
+```text
+docs/phase6-5-corpus-expansion.md
+```
+
+## Phase 6.5 Gate Status
+
+Phase 6.5 is valid as a corpus-expansion checkpoint.
+
+Satisfied:
+
+- local services were resumed,
+- API health was restored,
+- larger PDFs now ingest through a robust text fallback,
+- expanded corpus indexing works,
+- embedding and vector-store writes are batched,
+- eval harness runs across four indexed documents,
+- hybrid retrieval and citation verification remain functional,
+- a clear table-retrieval weakness is identified for Phase 7.
 
 Next phase remains locked until explicitly started:
 

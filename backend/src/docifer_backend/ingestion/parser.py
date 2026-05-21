@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,6 +22,67 @@ class ParsedDocument:
 class DocumentParser(Protocol):
     def parse(self, source_path: Path) -> ParsedDocument:
         ...
+
+
+class AutoPdfParser:
+    """Choose the strongest parser that is practical for a local text-RAG run."""
+
+    def __init__(
+        self,
+        *,
+        docling_parser: DocumentParser | None = None,
+        text_parser: DocumentParser | None = None,
+        docling_max_file_size_bytes: int = 1_000_000,
+        backend: str = "auto",
+    ) -> None:
+        self.docling_parser = docling_parser or DoclingParser()
+        self.text_parser = text_parser or PdfiumTextParser()
+        self.docling_max_file_size_bytes = docling_max_file_size_bytes
+        self.backend = backend
+
+    def parse(self, source_path: Path) -> ParsedDocument:
+        backend = self.backend.lower().strip()
+        if backend == "docling":
+            return self.docling_parser.parse(source_path)
+        if backend in {"pdfium", "pdfium_text", "text"}:
+            return self.text_parser.parse(source_path)
+        if backend != "auto":
+            raise ValueError(
+                "Unsupported PDF parser backend. Use auto, docling, or pdfium_text."
+            )
+
+        if source_path.stat().st_size > self.docling_max_file_size_bytes:
+            parsed = self.text_parser.parse(source_path)
+            return replace(
+                parsed,
+                errors=[
+                    {
+                        "type": "parser_selection",
+                        "message": (
+                            "Used text-only PDF parser because file size exceeded "
+                            "the local Docling threshold."
+                        ),
+                        "docling_max_file_size_bytes": self.docling_max_file_size_bytes,
+                    },
+                    *parsed.errors,
+                ],
+            )
+
+        try:
+            return self.docling_parser.parse(source_path)
+        except Exception as exc:
+            parsed = self.text_parser.parse(source_path)
+            return replace(
+                parsed,
+                errors=[
+                    {
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                        "stage": "docling_primary_parser",
+                    },
+                    *parsed.errors,
+                ],
+            )
 
 
 class DoclingParser:
@@ -48,6 +109,67 @@ class DoclingParser:
             table_count=_infer_labeled_count(raw_document, {"table", "table_item"}),
             figure_count=_infer_labeled_count(raw_document, {"picture", "figure", "image"}),
             errors=_json_safe(_serialize_errors(getattr(result, "errors", []))),
+        )
+
+
+class PdfiumTextParser:
+    parser_name = "pypdfium2-text"
+
+    def parse(self, source_path: Path) -> ParsedDocument:
+        from importlib.metadata import version
+
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(str(source_path))
+        texts: list[dict[str, Any]] = []
+        markdown_pages: list[str] = []
+        try:
+            for page_index in range(len(pdf)):
+                page_number = page_index + 1
+                page = pdf[page_index]
+                text_page = page.get_textpage()
+                try:
+                    text = _normalize_pdfium_text(text_page.get_text_range())
+                finally:
+                    text_page.close()
+                    page.close()
+
+                if not text:
+                    continue
+
+                texts.append(
+                    {
+                        "self_ref": f"#/texts/{len(texts)}",
+                        "label": "text",
+                        "text": text,
+                        "prov": [{"page_no": page_number}],
+                    }
+                )
+                markdown_pages.append(f"<!-- page {page_number} -->\n\n{text}")
+
+            page_count = len(pdf)
+        finally:
+            pdf.close()
+
+        raw_document = {
+            "schema_name": "docifer.pdfium_text_document",
+            "pages": {
+                str(page_number): {"page_no": page_number}
+                for page_number in range(1, page_count + 1)
+            },
+            "texts": texts,
+        }
+
+        return ParsedDocument(
+            parser_name=self.parser_name,
+            parser_version=version("pypdfium2"),
+            docling_status="text_extracted",
+            raw_document=raw_document,
+            markdown="\n\n".join(markdown_pages),
+            page_count=page_count,
+            table_count=0,
+            figure_count=0,
+            errors=[],
         )
 
 
@@ -112,3 +234,8 @@ def _infer_labeled_count(value: Any, labels: set[str]) -> int:
         for child in value:
             count += _infer_labeled_count(child, labels)
     return count
+
+
+def _normalize_pdfium_text(value: str) -> str:
+    lines = [line.strip() for line in value.replace("\r", "\n").splitlines()]
+    return "\n".join(line for line in lines if line)

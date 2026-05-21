@@ -22,16 +22,21 @@ class OpenAIProvider:
         self.client = OpenAI(api_key=resolved_api_key)
         self.embedding_model = embedding_model or settings.openai_embedding_model
         self.answer_model = answer_model or settings.openai_answer_model
+        self.embedding_batch_size = settings.openai_embedding_batch_size
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
 
-        response = self.client.embeddings.create(
-            model=self.embedding_model,
-            input=texts,
-        )
-        return [item.embedding for item in response.data]
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self.embedding_batch_size):
+            batch = texts[start:start + self.embedding_batch_size]
+            response = self.client.embeddings.create(
+                model=self.embedding_model,
+                input=batch,
+            )
+            embeddings.extend(item.embedding for item in response.data)
+        return embeddings
 
     def generate_grounded_answer(
         self,

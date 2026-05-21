@@ -48,6 +48,7 @@ def upsert_text_chunks(
     collection_name: str,
     chunks: list[TextChunk],
     embeddings: list[list[float]],
+    batch_size: int = 128,
 ) -> None:
     if len(chunks) != len(embeddings):
         raise ValueError("Chunk and embedding counts must match.")
@@ -77,7 +78,12 @@ def upsert_text_chunks(
         )
         for chunk, embedding in zip(chunks, embeddings, strict=True)
     ]
-    client.upsert(collection_name=collection_name, points=points, wait=True)
+    for start in range(0, len(points), batch_size):
+        client.upsert(
+            collection_name=collection_name,
+            points=points[start:start + batch_size],
+            wait=True,
+        )
 
 
 def search_text_chunks(

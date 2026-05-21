@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_answer_model: str = "gpt-5.4-mini"
+    openai_embedding_batch_size: int = 64
 
     google_cloud_project: str | None = None
     google_cloud_location: str = "us-central1"
@@ -34,7 +35,10 @@ class Settings(BaseSettings):
     raw_pdf_dir: str = "datasets/raw_pdfs"
     processed_data_dir: str = "datasets/processed"
     artifacts_dir: str = "artifacts"
+    pdf_parser_backend: str = "auto"
+    docling_max_file_size_bytes: int = 1_000_000
     qdrant_text_collection: str = "docifer_text_chunks"
+    qdrant_upsert_batch_size: int = 128
     golden_eval_path: str = "docifer_phase1_corpus_and_golden_eval_v1.xlsx"
     eval_runs_dir: str = "evals/runs"
 

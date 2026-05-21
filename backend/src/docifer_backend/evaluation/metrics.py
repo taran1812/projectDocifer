@@ -12,6 +12,13 @@ ABSTENTION_MARKERS = (
     "insufficient evidence",
     "cannot answer",
     "not enough evidence",
+    "does not include",
+    "does not provide",
+    "no evidence",
+    "not available",
+    "not found",
+    "not include",
+    "not mention",
     "not provided in the evidence",
 )
 

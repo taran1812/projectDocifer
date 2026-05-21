@@ -50,6 +50,7 @@ class TextIndexingService:
         self.ai_provider = ai_provider or get_ai_provider()
         self.qdrant_client = qdrant_client or get_qdrant_client()
         self.collection_name = collection_name or settings.qdrant_text_collection
+        self.qdrant_upsert_batch_size = settings.qdrant_upsert_batch_size
 
     def index_canonical_document(
         self,
@@ -110,6 +111,7 @@ class TextIndexingService:
                 collection_name=self.collection_name,
                 chunks=chunks,
                 embeddings=embeddings,
+                batch_size=self.qdrant_upsert_batch_size,
             )
             self._replace_chunk_records(document_id, chunks)
         except Exception:

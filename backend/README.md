@@ -109,3 +109,26 @@ Example hybrid query with citation verification:
 ```
 
 The response separates `retrieved_evidence`, `answer_citations`, and `unused_retrieved_evidence`, and includes a citation-grounding verdict when verification is enabled.
+
+## Phase 6.5 expanded-corpus validation
+
+Phase 6.5 added a text-first fallback parser for larger PDFs and batched indexing writes so the text RAG path can handle more than one starter document.
+
+Current expanded indexed slice:
+
+- `DOC-001` Microsoft annual report
+- `DOC-003` JPMorgan annual report
+- `DOC-005` World Bank report
+- `DOC-007` OECD report
+
+Run the expanded hybrid evaluation:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner --run-name phase6_5_expanded_corpus_hybrid_top8 --doc-id DOC-001 --doc-id DOC-003 --doc-id DOC-005 --doc-id DOC-007 --top-k 8 --retrieval-mode hybrid --verify-citations
+```
+
+The Phase 6.5 notes are in:
+
+```text
+docs/phase6-5-corpus-expansion.md
+```
