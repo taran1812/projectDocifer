@@ -68,7 +68,7 @@ def _build_json_payload(
         "fallback_used": fallback_used,
         "elapsed_ms": elapsed_ms,
     }
-    if error_message:
+    if error_message is not None:
         payload["error_message"] = error_message
     if verdicts is not None:
         payload["verdicts"] = {

@@ -454,8 +454,7 @@ def test_write_audit_artifacts_creates_files(tmp_path):
     assert (tmp_path / "parse_audit.json").exists()
     assert (tmp_path / "parse_audit.md").exists()
 
-    import json as json_mod
-    payload = json_mod.loads((tmp_path / "parse_audit.json").read_text())
+    payload = json.loads((tmp_path / "parse_audit.json").read_text())
     assert payload["audit_status"] == "completed"
     assert payload["elapsed_ms"] == 250
     assert "table_candidate_count" in payload["summary"]
@@ -472,7 +471,7 @@ def test_write_audit_artifacts_unwritable_dir(tmp_path):
     unwritable.mkdir()
     unwritable.chmod(0o444)
     try:
-        with pytest.raises(Exception):
+        with pytest.raises(OSError):
             write_audit_artifacts(
                 artifact_dir=unwritable,
                 content_hash="c" * 64,
