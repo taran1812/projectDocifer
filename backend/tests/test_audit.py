@@ -306,14 +306,30 @@ def test_quality_status_all_good():
 
 
 def test_quality_status_weak_when_any_weak():
+    # [good text, weak table (no tables), weak visual (no figures, no fallback)] → weak
+    summary = AuditSummary(
+        page_count=10, table_count=0, table_candidate_count=0, table_like_page_count=0,
+        figure_count=1, figure_candidate_count=1, caption_candidate_count=0,
+        empty_page_count=0, text_chars_total=30000, avg_chars_per_page=3000,
+        parse_error_count=0, chunk_count=0,
+    )
+    verdicts = compute_verdicts(summary, fallback_used=False)
+    assert verdicts.quality_status == "weak"
+
+
+def test_quality_status_poor_when_two_or_more_poor():
+    # text=good, table=poor (fallback, no candidates), visual=poor (fallback) → 2 poor → overall poor
     summary = AuditSummary(
         page_count=10, table_count=0, table_candidate_count=0, table_like_page_count=0,
         figure_count=0, figure_candidate_count=0, caption_candidate_count=0,
         empty_page_count=0, text_chars_total=30000, avg_chars_per_page=3000,
         parse_error_count=0, chunk_count=0,
     )
-    verdicts = compute_verdicts(summary, fallback_used=False)
-    assert verdicts.quality_status == "weak"
+    verdicts = compute_verdicts(summary, fallback_used=True)
+    assert verdicts.table_readiness == "poor"
+    assert verdicts.visual_readiness == "poor"
+    assert verdicts.text_readiness == "good"
+    assert verdicts.quality_status == "poor"
 
 
 def test_quality_status_poor_when_text_poor():
@@ -340,3 +356,58 @@ def test_risk_flags_include_fallback_and_large_doc():
     assert "no_figures" in verdicts.risk_flags
     assert "large_document" in verdicts.risk_flags
     assert "high_chunk_count" in verdicts.risk_flags
+
+
+def test_detect_fallback_unknown_case():
+    # pypdfium2-text with errors that match neither parser_selection nor docling_primary_parser
+    canonical = _make_canonical(
+        parser_name="pypdfium2-text",
+        errors=[{"type": "SomeOtherError", "message": "unexpected"}],
+    )
+    fallback_used, reason = detect_fallback(canonical)
+    assert fallback_used is True
+    assert reason == "unknown"
+
+
+def test_risk_flag_parse_errors_present():
+    summary = AuditSummary(
+        page_count=10, table_count=1, table_candidate_count=1, table_like_page_count=1,
+        figure_count=0, figure_candidate_count=0, caption_candidate_count=0,
+        empty_page_count=0, text_chars_total=20000, avg_chars_per_page=2000,
+        parse_error_count=2, chunk_count=0,
+    )
+    verdicts = compute_verdicts(summary, fallback_used=False)
+    assert "parse_errors_present" in verdicts.risk_flags
+
+
+def test_risk_flag_low_text_density():
+    summary = AuditSummary(
+        page_count=10, table_count=0, table_candidate_count=0, table_like_page_count=0,
+        figure_count=0, figure_candidate_count=0, caption_candidate_count=0,
+        empty_page_count=0, text_chars_total=800, avg_chars_per_page=80,
+        parse_error_count=0, chunk_count=0,
+    )
+    verdicts = compute_verdicts(summary, fallback_used=False)
+    assert "low_text_density" in verdicts.risk_flags
+
+
+def test_risk_flag_high_empty_page_ratio():
+    summary = AuditSummary(
+        page_count=10, table_count=0, table_candidate_count=0, table_like_page_count=0,
+        figure_count=0, figure_candidate_count=0, caption_candidate_count=0,
+        empty_page_count=2, text_chars_total=5000, avg_chars_per_page=500,
+        parse_error_count=0, chunk_count=0,
+    )
+    verdicts = compute_verdicts(summary, fallback_used=False)
+    assert "high_empty_page_ratio" in verdicts.risk_flags
+
+
+def test_risk_flag_missing_docling_json():
+    summary = AuditSummary(
+        page_count=10, table_count=2, table_candidate_count=2, table_like_page_count=2,
+        figure_count=1, figure_candidate_count=1, caption_candidate_count=1,
+        empty_page_count=0, text_chars_total=20000, avg_chars_per_page=2000,
+        parse_error_count=0, chunk_count=0,
+    )
+    verdicts = compute_verdicts(summary, fallback_used=False, docling_missing=True)
+    assert "missing_docling_json" in verdicts.risk_flags
