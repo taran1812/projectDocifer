@@ -614,6 +614,7 @@ def test_service_failed_stage_read_canonical(tmp_path, session_factory):
     assert row is not None
     assert row.audit_status == "failed"
     assert row.failed_stage == "read_canonical"
+    assert row.is_latest is True
 
 
 def test_service_fallback_parser_path(tmp_path, session_factory):
@@ -638,3 +639,4 @@ def test_service_fallback_parser_path(tmp_path, session_factory):
     assert row.fallback_used is True
     assert row.fallback_reason == "size_threshold"
     assert "fallback_parser_used" in row.risk_flags_json
+    assert row.is_latest is True

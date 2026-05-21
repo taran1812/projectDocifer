@@ -21,7 +21,7 @@ from docifer_backend.audit.metrics import (
 from docifer_backend.audit.models import ParseQualityAudit
 from docifer_backend.audit.reporting import write_audit_artifacts
 from docifer_backend.config.paths import display_path, resolve_project_path
-from docifer_backend.ingestion.models import Document, IngestionJob, new_uuid, utc_now
+from docifer_backend.ingestion.models import Document, IngestionJob, new_uuid
 from docifer_backend.ingestion.status import IngestionStatus
 from docifer_backend.retrieval.models import TextChunkRecord
 from docifer_backend.storage.database import get_session_factory
@@ -61,7 +61,22 @@ class ParseQualityService:
         canonical_path = Path(canonical_path)
         start_ms = int(time.monotonic() * 1000)
 
-        document_id = self._get_document_id(content_hash)
+        try:
+            document_id = self._get_document_id(content_hash)
+        except Exception as exc:
+            logger.error("DB lookup failed for content_hash %s: %s", content_hash[:12], exc)
+            return ParseQualityReport(
+                audit_id=audit_id,
+                content_hash=content_hash,
+                audit_status="failed",
+                quality_status=None,
+                text_readiness=None,
+                table_readiness=None,
+                visual_readiness=None,
+                elapsed_ms=int(time.monotonic() * 1000) - start_ms,
+                error_message=str(exc),
+                failed_stage="read_canonical",
+            )
 
         summary: AuditSummary | None = None
         verdicts: AuditVerdicts | None = None
@@ -117,19 +132,26 @@ class ParseQualityService:
         docling_missing = False
         docling_path_str = canonical.get("artifacts", {}).get("docling_json", "")
         if docling_path_str:
-            docling_path = resolve_project_path(docling_path_str)
-            if docling_path.exists():
-                try:
+            try:
+                docling_path = resolve_project_path(docling_path_str)
+                if docling_path.exists():
                     docling = json.loads(docling_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    logger.warning("Could not read docling.json: %s", exc)
+                else:
                     docling_missing = True
-            else:
+            except Exception as exc:
+                logger.warning("Could not read docling.json: %s", exc)
                 docling_missing = True
+
+        # Fetch chunk count before compute stage — failure silently defaults to 0
+        # (chunk count is supplementary; a DB error here should not fail the audit)
+        try:
+            chunk_count = self._get_chunk_count(content_hash)
+        except Exception as exc:
+            logger.warning("Could not fetch chunk count for %s: %s", content_hash[:12], exc)
+            chunk_count = 0
 
         # Stage: compute_metrics
         try:
-            chunk_count = self._get_chunk_count(content_hash)
             summary = compute_summary(canonical, markdown_text, docling, chunk_count=chunk_count)
             verdicts = compute_verdicts(summary, fallback_used=fallback_used, docling_missing=docling_missing)
         except Exception as exc:
@@ -462,6 +484,10 @@ class ParseQualityService:
         self._insert_with_is_latest_flip(row, content_hash)
 
     def _insert_with_is_latest_flip(self, row: ParseQualityAudit, content_hash: str) -> None:
+        # NOTE: is_latest maintenance assumes serial execution per content_hash.
+        # Concurrent audits of the same document could produce multiple is_latest=True rows
+        # (write-skew). Phase 7A runs audits serially via CLI or post-ingestion hook,
+        # so this is acceptable. Add SELECT FOR UPDATE if concurrent access is needed.
         with self.session_factory() as session:
             session.add(row)
             session.flush()
