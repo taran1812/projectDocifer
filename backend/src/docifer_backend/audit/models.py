@@ -13,8 +13,8 @@ class ParseQualityAudit(Base):
     __tablename__ = "parse_quality_audits"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    document_id: Mapped[str] = mapped_column(
-        ForeignKey("documents.id"), nullable=False, index=True
+    document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("documents.id"), nullable=True, index=True
     )
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     canonical_path: Mapped[str] = mapped_column(Text, nullable=False)

@@ -89,7 +89,7 @@ def test_is_latest_flips_on_second_audit(session_factory, document):
         rows = session.scalars(
             select(ParseQualityAudit)
             .where(ParseQualityAudit.content_hash == content_hash)
-            .order_by(ParseQualityAudit.created_at)
+            .order_by(ParseQualityAudit.audit_run_id)
         ).all()
 
     assert len(rows) == 2, "Both audit rows must be preserved (history not deleted)"
