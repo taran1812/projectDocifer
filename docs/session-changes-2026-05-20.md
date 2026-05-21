@@ -1777,3 +1777,215 @@ Next phase remains locked until explicitly started:
 ```text
 Phase 7 - Tables + Visual Retrieval
 ```
+
+---
+
+# Phase 7A Planning and Partial Implementation (2026-05-20/21)
+
+## Project Evaluation
+
+Before starting Phase 7A, an independent code review of the full project was conducted. Key findings:
+
+- Architecture and code quality: solid. Clean module separation, dependency injection, frozen dataclasses, consistent SQLAlchemy 2 patterns.
+- Test coverage: thin. 15 tests on tiny synthetic fixture data. No integration tests against real Postgres/Qdrant.
+- Frontend: does not exist. `ls frontend` returns empty.
+- Evaluation corpus: only 15/40 golden questions evaluated, over 4 documents.
+- Self-reported `PROJECT_EVALUATION.md` was noted as optimistic; honest assessment was B- engineering, C on production readiness.
+
+## Phase 7A Design
+
+### Brainstorming Session
+
+Phase 7A was designed through a structured brainstorming session with the following decisions:
+
+| Decision | Choice |
+|---|---|
+| Lifecycle | Reusable ingestion check (auto after ingest + re-runnable) |
+| Output | Report file (`parse_audit.json` + `parse_audit.md`) + DB record |
+| Trigger | Auto after ingest + re-runnable via CLI |
+| Verdicts | Stats + heuristic verdicts (advisory, never block ingestion) |
+
+### Architecture (Option A chosen)
+
+New `ParseQualityService` post-ingestion service. Reads `canonical.json` → `document.md` → `docling.json` (optional), computes stats, assigns heuristic verdicts, writes artifacts, upserts DB row.
+
+### Design Spec
+
+Written and committed:
+
+```text
+docs/superpowers/specs/2026-05-20-phase7a-parse-quality-audit-design.md
+```
+
+Key design decisions from spec:
+
+- `quality_status = "good"` only when ALL THREE readiness values are `good`
+- `quality_status = "weak"` when no `poor` but at least one `weak`
+- `quality_status = "poor"` when `text_readiness == "poor"` OR 2+ signals are `poor`
+- Fallback parser → `visual_readiness = "poor"`, `table_readiness` depends on text patterns
+- Insert new row per audit run; set `is_latest = False` on previous rows (history preserved)
+- `audit_status`, `failed_stage`, `error_message` captured on failure; audit failure never blocks ingestion
+- `fallback_reason`: `size_threshold` | `docling_failed` | `manual_backend` | `unknown`
+
+### DB Schema: `parse_quality_audits`
+
+Key columns added:
+
+```text
+id, document_id (nullable FK), content_hash, canonical_path
+parser_name, parser_version, canonical_schema_version
+fallback_used (bool), fallback_reason
+audit_version, audit_run_id, audit_status, error_message, failed_stage, is_latest
+quality_status, text_readiness, table_readiness, visual_readiness
+risk_flags_json, summary_json
+artifact_json_path, artifact_md_path, elapsed_ms
+created_at
+```
+
+### Risk Flags
+
+```text
+fallback_parser_used, no_structured_tables, table_like_text_without_structure
+no_figures, high_empty_page_ratio, parse_errors_present, low_text_density
+large_document (>200 pages), high_chunk_count (>1000), missing_docling_json
+```
+
+### Implementation Plan
+
+Written and committed:
+
+```text
+docs/superpowers/plans/2026-05-20-phase7a-parse-quality-audit.md
+```
+
+6 tasks, full TDD, complete code in every step.
+
+---
+
+## Phase 7A Implementation — Tasks Completed
+
+### New Module Structure
+
+```text
+backend/src/docifer_backend/audit/
+  __init__.py
+  models.py         Task 1 — ParseQualityAudit SQLAlchemy model
+  metrics.py        Task 2 — stat extraction + heuristic verdicts
+  reporting.py      Task 3 — parse_audit.json + parse_audit.md writers
+  service.py        Task 4 — ParseQualityService orchestrator
+```
+
+### Task 1: DB Model
+
+**Commit:** `ed367bd` + fix `4b66d03`
+
+Files created/modified:
+- `backend/src/docifer_backend/audit/__init__.py`
+- `backend/src/docifer_backend/audit/models.py`
+- `backend/src/docifer_backend/storage/database.py` (audit models registered in `create_database_schema()`)
+- `backend/tests/test_audit.py` (started)
+
+Fix applied after review: `document_id` changed to `Mapped[str | None]` + `nullable=True` to match service contract. Test ordering changed from `created_at` to `audit_run_id` for deterministic results.
+
+### Task 2: Metrics Computation
+
+**Commit:** `e765bcb` + fix `8787770`
+
+File created:
+- `backend/src/docifer_backend/audit/metrics.py`
+
+Public interface:
+- `AUDIT_VERSION = "0.1.0"`
+- `AuditSummary` (frozen dataclass, 12 fields)
+- `AuditVerdicts` (frozen dataclass)
+- `detect_fallback(canonical) -> tuple[bool, str | None]`
+- `compute_summary(canonical, markdown_text, docling, chunk_count) -> AuditSummary`
+- `compute_verdicts(summary, *, fallback_used, docling_missing) -> AuditVerdicts`
+
+Two bugs found and fixed in provided spec code:
+1. `_text_stats`: leading empty fragment from `re.split` was counted as an empty page
+2. `_quality_status`: was triggering "poor" when any signal was poor; fixed to require `text=="poor"` OR `poor_count >= 2`
+
+Fix commit added tests for: `detect_fallback` "unknown" case, `quality_status` 2+ poor path, `missing_docling_json` flag, `parse_errors_present`, `low_text_density`, `high_empty_page_ratio`.
+
+### Task 3: Artifact Reporting
+
+**Commit:** `4f2fe2a` + fix `1c6ee57`
+
+File created:
+- `backend/src/docifer_backend/audit/reporting.py`
+
+Also added by implementer (accepted):
+- `backend/conftest.py` — redirects `tmp_path` basetemp on Windows permission issues
+- `backend/pyproject.toml` — `tmp_path_retention_policy = "failed"`
+
+Fixes applied after review:
+- Added `.pytest_tmp/` to `.gitignore`
+- `if error_message is not None:` (was `if error_message:` — would silently drop empty string)
+- `pytest.raises(OSError)` (was bare `Exception`)
+- Removed inline `import json as json_mod` (top-level `json` already imported)
+
+### Task 4: ParseQualityService Orchestrator
+
+**Commit:** `3218dc8` + fix `ad48036`
+
+File created:
+- `backend/src/docifer_backend/audit/service.py`
+
+`ParseQualityReport` frozen dataclass returned by all audit methods.
+
+`ParseQualityService.audit()` pipeline:
+1. `read_canonical` — JSON parse; failure → persist failed row
+2. `read_markdown` — text read; failure → persist failed row
+3. `read_docling_json` — optional, non-fatal; missing or corrupt → sets `docling_missing=True`, continues
+4. `compute_metrics` — pure computation; failure → persist failed row
+5. `write_artifacts` — file write; failure → persist failed row WITH partial `summary_json` preserved
+6. `persist_db` — DB insert + is_latest flip; failure → return failed report without DB row
+
+Fixes applied after review:
+- `_get_document_id` wrapped in try/except (DB down → returns failed report, not raise)
+- `resolve_project_path(docling_path_str)` moved inside try/except for docling stage
+- `_get_chunk_count` moved out of `compute_metrics` try block; failure silently defaults to 0 with warning
+- Added serial-execution comment on `_insert_with_is_latest_flip` (concurrent write-skew known limitation)
+- Added `is_latest is True` assertions to two test paths (failed + fallback)
+- Removed unused `utc_now` import
+
+### Test Count Progress
+
+| After | Tests |
+|---|---|
+| Task 1 | 1 passed |
+| Task 2 | 16 passed |
+| Task 3 | 23 passed, 1 xfailed (Windows chmod) |
+| Task 4 | 26 passed, 1 xfailed |
+
+---
+
+## Remaining Phase 7A Work
+
+Tasks 5 and 6 are pending:
+
+| Task | File | Description |
+|---|---|---|
+| 5 | `audit/cli.py` | `--canonical-path`, `--content-hash`, `--doc-id`, `--all-indexed` CLI |
+| 6 | `ingestion/service.py` | Wire `ParseQualityService.audit()` into post-parse hook |
+
+## Phase 7A Commits This Session
+
+```text
+ed367bd feat(audit): add ParseQualityAudit DB model and schema registration
+4b66d03 fix(audit): document_id nullable=True, stable test ordering by audit_run_id
+e765bcb feat(audit): add metrics computation and heuristic verdicts
+8787770 fix(audit): remove unused import, add missing test coverage for all risk flags and quality_status branches
+4f2fe2a feat(audit): add artifact reporting (parse_audit.json + parse_audit.md)
+1c6ee57 fix(audit): .gitignore pytest_tmp, error_message is not None, pytest.raises(OSError)
+3218dc8 feat(audit): add ParseQualityService orchestrator
+ad48036 fix(audit): guard _get_document_id, fix docling stage try-scope, chunk_count default 0, is_latest test assertions, serial-execution note
+```
+
+Also committed earlier this session:
+
+```text
+4f073e9 Add Phase 7A parse quality audit design spec
+772def3 Add Phase 7A implementation plan
+```
