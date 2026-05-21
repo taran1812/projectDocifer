@@ -1961,14 +1961,132 @@ Fixes applied after review:
 
 ---
 
-## Remaining Phase 7A Work
+## Phase 7A Completion Update
 
-Tasks 5 and 6 are pending:
+Tasks 5 and 6 are now completed:
 
 | Task | File | Description |
 |---|---|---|
-| 5 | `audit/cli.py` | `--canonical-path`, `--content-hash`, `--doc-id`, `--all-indexed` CLI |
-| 6 | `ingestion/service.py` | Wire `ParseQualityService.audit()` into post-parse hook |
+| 5 | `audit/cli.py` | Added `--canonical-path`, `--content-hash`, `--doc-id`, `--all-indexed` CLI |
+| 6 | `ingestion/service.py` | Wired `ParseQualityService.audit()` into post-parse hook |
+
+### Task 5: CLI Completed
+
+Created:
+
+```text
+backend/src/docifer_backend/audit/cli.py
+```
+
+Supported commands:
+
+```text
+--canonical-path
+--content-hash
+--doc-id
+--all-indexed
+--audit-run-id
+```
+
+The CLI prints JSON reports and returns nonzero when an audit fails.
+
+### Task 6: Ingestion Hook Completed
+
+Updated:
+
+```text
+backend/src/docifer_backend/ingestion/service.py
+```
+
+Behavior:
+
+- fresh successful parses call `ParseQualityService.audit(...)`,
+- the audit runs outside the ingestion session,
+- audit crashes or failed audit reports are logged,
+- audit failures do not block successful ingestion.
+
+### Additional Phase 7A Hardening
+
+Updated:
+
+```text
+backend/src/docifer_backend/audit/service.py
+.gitignore
+backend/README.md
+backend/tests/test_audit.py
+```
+
+Added:
+
+- schema initialization when `ParseQualityService()` is constructed without an injected session factory,
+- post-commit `is_latest` cleanup so concurrent manual audits converge back to one latest row per content hash,
+- `--all-indexed` selection now audits one latest completed artifact per indexed content hash,
+- CLI tests,
+- ingestion-hook tests,
+- generated `backend/tmp_pytest/` ignore rule,
+- README usage for manual and automatic parse audits.
+
+### Phase 7A Validation
+
+Full test suite:
+
+```text
+47 passed, 1 xfailed
+```
+
+Compile check:
+
+```text
+backend\.venv\Scripts\python.exe -m compileall -q backend\src backend\tests
+```
+
+Real local validation:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.audit.cli --all-indexed --audit-run-id phase7a_validation_all_indexed_final
+```
+
+Result:
+
+| Hash Prefix | Status | Overall | Text | Tables | Visual |
+|---|---|---|---|---|---|
+| `8109582811fe` | completed | weak | good | good | weak |
+| `0f0dae0b8baa` | completed | poor | good | poor | poor |
+| `2a3ee9733eaf` | completed | poor | good | poor | poor |
+| `53df3e6ad1c2` | completed | poor | good | poor | poor |
+
+Additional CLI modes validated:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.audit.cli --doc-id DOC-005 --audit-run-id phase7a_validation_doc_id
+backend\.venv\Scripts\python.exe -m docifer_backend.audit.cli --content-hash 8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8 --audit-run-id phase7a_validation_content_hash
+```
+
+After final validation, the local database has one latest audit row per indexed content hash:
+
+```text
+audit_rows: 11
+latest_rows: 4
+```
+
+Generated artifact files:
+
+```text
+parse_audit.json
+parse_audit.md
+```
+
+were written under each indexed document's processed artifact directory.
+
+### Phase 7A Gate Verdict
+
+Phase 7A is complete and valid.
+
+The audit confirms the key Phase 7B planning risk:
+
+- Docling-parsed World Bank has usable table structure.
+- Larger fallback-parsed documents have good text extraction but poor table and visual readiness.
+- Phase 7B should not assume structured tables exist for fallback-parsed PDFs; it needs either table-specific extraction, targeted Docling retry options, or a table-like-text strategy.
 
 ## Phase 7A Commits This Session
 
@@ -1982,6 +2100,8 @@ e765bcb feat(audit): add metrics computation and heuristic verdicts
 3218dc8 feat(audit): add ParseQualityService orchestrator
 ad48036 fix(audit): guard _get_document_id, fix docling stage try-scope, chunk_count default 0, is_latest test assertions, serial-execution note
 ```
+
+Current Phase 7A completion work is not yet committed.
 
 Also committed earlier this session:
 

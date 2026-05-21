@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from docifer_backend.audit.service import ParseQualityService
 from docifer_backend.config.paths import display_path, resolve_project_path
 from docifer_backend.config.settings import get_settings
 from docifer_backend.ingestion.file_info import PdfFileInfo, inspect_pdf_file
@@ -16,6 +18,9 @@ from docifer_backend.ingestion.models import Document, IngestionJob, utc_now
 from docifer_backend.ingestion.parser import AutoPdfParser, DocumentParser, ParsedDocument
 from docifer_backend.ingestion.status import IngestionStatus
 from docifer_backend.storage.database import create_database_schema, get_session_factory
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,7 @@ class IngestionService:
         processed_data_dir: str | Path | None = None,
         max_attempts: int = 2,
         initialize_schema: bool = True,
+        quality_service: ParseQualityService | None = None,
     ) -> None:
         if session_factory is None and initialize_schema:
             create_database_schema()
@@ -51,6 +57,9 @@ class IngestionService:
             processed_data_dir or settings.processed_data_dir
         )
         self.max_attempts = max_attempts
+        self.quality_service = quality_service or ParseQualityService(
+            session_factory=self.session_factory
+        )
 
     def ingest_pdf(
         self,
@@ -124,7 +133,10 @@ class IngestionService:
                     job.artifact_path = display_path(artifact_path)
                     job.completed_at = utc_now()
                     session.commit()
-                    return _outcome_from_job(job, reused_existing=False)
+                    outcome = _outcome_from_job(job, reused_existing=False)
+
+                self._run_parse_quality_audit(artifact_path, file_info.content_hash)
+                return outcome
             except Exception as exc:
                 last_error = str(exc)
                 with self.session_factory() as session:
@@ -147,6 +159,25 @@ class IngestionService:
             if job is None:
                 raise RuntimeError(f"Ingestion job disappeared: {job_id}")
             return _outcome_from_job(job, reused_existing=False, error_message=last_error)
+
+    def _run_parse_quality_audit(self, artifact_path: Path, content_hash: str) -> None:
+        try:
+            report = self.quality_service.audit(artifact_path, content_hash)
+        except Exception as exc:
+            logger.warning(
+                "Parse quality audit crashed for %s after successful ingestion: %s",
+                content_hash[:12],
+                exc,
+            )
+            return
+
+        if report.audit_status == "failed":
+            logger.warning(
+                "Parse quality audit failed for %s at %s: %s",
+                content_hash[:12],
+                report.failed_stage,
+                report.error_message,
+            )
 
     def _get_or_create_document(self, session: Session, file_info: PdfFileInfo) -> Document:
         document = session.scalar(

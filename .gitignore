@@ -16,6 +16,7 @@ env/
 
 # Pytest temp directories
 .pytest_tmp/
+backend/tmp_pytest/
 
 # UV / Python
 .python-version

@@ -132,3 +132,30 @@ The Phase 6.5 notes are in:
 ```text
 docs/phase6-5-corpus-expansion.md
 ```
+
+## Phase 7A parse quality audit
+
+Phase 7A audits parse artifacts and writes advisory readiness reports for text, table, and visual readiness.
+
+Manual audit commands:
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.audit.cli --canonical-path datasets\processed\8109582811fe\55e8b2a2-0406-4aed-8a9e-da81ef6ef0ff\canonical.json
+```
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.audit.cli --content-hash 8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8
+```
+
+```powershell
+backend\.venv\Scripts\python.exe -m docifer_backend.audit.cli --all-indexed
+```
+
+Each successful audit writes:
+
+```text
+parse_audit.json
+parse_audit.md
+```
+
+New ingestions automatically trigger the audit after a successful parse. Audit failures are advisory and do not block ingestion.

@@ -24,7 +24,7 @@ from docifer_backend.config.paths import display_path, resolve_project_path
 from docifer_backend.ingestion.models import Document, IngestionJob, new_uuid
 from docifer_backend.ingestion.status import IngestionStatus
 from docifer_backend.retrieval.models import TextChunkRecord
-from docifer_backend.storage.database import get_session_factory
+from docifer_backend.storage.database import create_database_schema, get_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,15 @@ class ParseQualityReport:
 
 
 class ParseQualityService:
-    def __init__(self, *, session_factory: sessionmaker[Session] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        session_factory: sessionmaker[Session] | None = None,
+        initialize_schema: bool = True,
+    ) -> None:
+        if session_factory is None and initialize_schema:
+            create_database_schema()
+
         self.session_factory = session_factory or get_session_factory()
 
     def audit(
@@ -338,7 +346,8 @@ class ParseQualityService:
                 select(Document.content_hash, IngestionJob.artifact_path)
                 .join(
                     TextChunkRecord,
-                    TextChunkRecord.content_hash == Document.content_hash,
+                    (TextChunkRecord.document_id == Document.id)
+                    & (TextChunkRecord.content_hash == Document.content_hash),
                 )
                 .join(
                     IngestionJob,
@@ -349,9 +358,13 @@ class ParseQualityService:
                         IngestionStatus.INDEXED.value,
                     ]),
                 )
-                .distinct()
+                .order_by(Document.content_hash, IngestionJob.completed_at.desc().nullslast())
             ).all()
-            return [(row[0], row[1]) for row in rows]
+
+            latest_paths: dict[str, str] = {}
+            for content_hash, artifact_path in rows:
+                latest_paths.setdefault(content_hash, artifact_path)
+            return list(latest_paths.items())
 
     def _persist_failed(
         self,
@@ -484,13 +497,14 @@ class ParseQualityService:
         self._insert_with_is_latest_flip(row, content_hash)
 
     def _insert_with_is_latest_flip(self, row: ParseQualityAudit, content_hash: str) -> None:
-        # NOTE: is_latest maintenance assumes serial execution per content_hash.
-        # Concurrent audits of the same document could produce multiple is_latest=True rows
-        # (write-skew). Phase 7A runs audits serially via CLI or post-ingestion hook,
-        # so this is acceptable. Add SELECT FOR UPDATE if concurrent access is needed.
         with self.session_factory() as session:
             session.add(row)
-            session.flush()
+            session.commit()
+
+        # Run the latest-row cleanup after the new row is committed. This makes
+        # concurrent CLI invocations converge on one latest row instead of each
+        # transaction missing the other's uncommitted insert.
+        with self.session_factory() as session:
             session.execute(
                 ParseQualityAudit.__table__.update()
                 .where(ParseQualityAudit.content_hash == content_hash)

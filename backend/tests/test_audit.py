@@ -640,3 +640,171 @@ def test_service_fallback_parser_path(tmp_path, session_factory):
     assert row.fallback_reason == "size_threshold"
     assert "fallback_parser_used" in row.risk_flags_json
     assert row.is_latest is True
+
+
+# CLI tests
+
+from docifer_backend.audit.cli import main as audit_main
+
+
+def test_cli_canonical_path(tmp_path, session_factory, monkeypatch, capsys):
+    canonical_path = tmp_path / "canonical.json"
+    _write_canonical(canonical_path)
+    _seed_document(session_factory)
+
+    monkeypatch.setattr(
+        "docifer_backend.audit.cli._build_service",
+        lambda: ParseQualityService(session_factory=session_factory),
+    )
+
+    exit_code = audit_main(["--canonical-path", str(canonical_path)])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audit_status"] == "completed"
+    assert payload["content_hash"] == "a" * 64
+
+
+def test_cli_content_hash(tmp_path, session_factory, monkeypatch, capsys):
+    canonical_path = tmp_path / "canonical.json"
+    _write_canonical(canonical_path)
+    _seed_document(session_factory)
+
+    from docifer_backend.ingestion.models import IngestionJob
+    from docifer_backend.ingestion.status import IngestionStatus
+
+    with session_factory() as session:
+        doc = session.scalar(select(Document).where(Document.content_hash == "a" * 64))
+        session.add(
+            IngestionJob(
+                document_id=doc.id,
+                source_path="/tmp/test.pdf",
+                content_hash="a" * 64,
+                status=IngestionStatus.PARSED.value,
+                artifact_path=str(canonical_path),
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        "docifer_backend.audit.cli._build_service",
+        lambda: ParseQualityService(session_factory=session_factory),
+    )
+
+    exit_code = audit_main(["--content-hash", "a" * 64])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audit_status"] == "completed"
+
+
+def test_cli_all_indexed_no_indexed_docs(session_factory, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "docifer_backend.audit.cli._build_service",
+        lambda: ParseQualityService(session_factory=session_factory),
+    )
+
+    exit_code = audit_main(["--all-indexed"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == []
+
+
+def test_cli_doc_id_missing_returns_failure(session_factory, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "docifer_backend.audit.cli._build_service",
+        lambda: ParseQualityService(session_factory=session_factory),
+    )
+
+    exit_code = audit_main(["--doc-id", "DOC-NOPE"])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audit_status"] == "failed"
+    assert payload["failed_stage"] == "resolve_doc_id"
+
+
+# ingestion integration tests
+
+from docifer_backend.ingestion.parser import ParsedDocument
+from docifer_backend.ingestion.service import IngestionService
+
+
+class FakeIngestionParser:
+    def parse(self, source_path: Path) -> ParsedDocument:
+        return ParsedDocument(
+            parser_name="docling",
+            parser_version="2.0.0",
+            docling_status="success",
+            raw_document={
+                "schema_name": "DoclingDocument",
+                "pages": {"1": {"page_no": 1}},
+                "texts": [
+                    {
+                        "label": "text",
+                        "text": "Hello world.",
+                        "prov": [{"page_no": 1}],
+                    }
+                ],
+                "tables": [],
+                "pictures": [],
+            },
+            markdown="<!-- page 1 -->\n\nHello world.",
+            page_count=1,
+            table_count=0,
+            figure_count=0,
+            errors=[],
+        )
+
+
+class CrashingQualityService:
+    def audit(self, artifact_path: Path, content_hash: str):
+        raise RuntimeError("audit crashed")
+
+
+def test_ingestion_triggers_parse_quality_audit(tmp_path, session_factory):
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 fake content for hashing purposes")
+
+    service = IngestionService(
+        session_factory=session_factory,
+        parser=FakeIngestionParser(),
+        processed_data_dir=tmp_path / "processed",
+        initialize_schema=False,
+        quality_service=ParseQualityService(session_factory=session_factory),
+    )
+
+    outcome = service.ingest_pdf(pdf_path)
+
+    assert outcome.status == "parsed"
+    with session_factory() as session:
+        doc = session.scalar(select(Document).where(Document.id == outcome.document_id))
+        audit_row = session.scalar(
+            select(ParseQualityAudit)
+            .where(ParseQualityAudit.content_hash == doc.content_hash)
+            .where(ParseQualityAudit.is_latest.is_(True))
+        )
+
+    assert audit_row is not None
+    assert audit_row.audit_status == "completed"
+    assert audit_row.artifact_json_path is not None
+    assert audit_row.artifact_md_path is not None
+
+
+def test_ingestion_succeeds_when_parse_quality_audit_crashes(tmp_path, session_factory):
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 fake content for hashing purposes")
+
+    service = IngestionService(
+        session_factory=session_factory,
+        parser=FakeIngestionParser(),
+        processed_data_dir=tmp_path / "processed",
+        initialize_schema=False,
+        quality_service=CrashingQualityService(),
+    )
+
+    outcome = service.ingest_pdf(pdf_path)
+
+    assert outcome.status == "parsed"
+    assert outcome.error_message is None
