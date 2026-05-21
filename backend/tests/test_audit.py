@@ -411,3 +411,78 @@ def test_risk_flag_missing_docling_json():
     )
     verdicts = compute_verdicts(summary, fallback_used=False, docling_missing=True)
     assert "missing_docling_json" in verdicts.risk_flags
+
+
+# ── reporting tests ─────────────────────────────────────────────────────────────
+
+from docifer_backend.audit.reporting import write_audit_artifacts
+
+
+def _make_summary() -> AuditSummary:
+    return AuditSummary(
+        page_count=10, table_count=2, table_candidate_count=2, table_like_page_count=2,
+        figure_count=1, figure_candidate_count=1, caption_candidate_count=1,
+        empty_page_count=0, text_chars_total=20000, avg_chars_per_page=2000,
+        parse_error_count=0, chunk_count=0,
+    )
+
+
+def _make_verdicts() -> AuditVerdicts:
+    return AuditVerdicts(
+        text_readiness="good",
+        table_readiness="good",
+        visual_readiness="weak",
+        quality_status="weak",
+        risk_flags=["no_figures"],
+    )
+
+
+def test_write_audit_artifacts_creates_files(tmp_path):
+    json_path, md_path = write_audit_artifacts(
+        artifact_dir=tmp_path,
+        content_hash="b" * 64,
+        audit_run_id="run-abc",
+        audit_status="completed",
+        summary=_make_summary(),
+        verdicts=_make_verdicts(),
+        elapsed_ms=250,
+        fallback_used=False,
+        parser_name="docling",
+    )
+    assert json_path is not None
+    assert md_path is not None
+    assert (tmp_path / "parse_audit.json").exists()
+    assert (tmp_path / "parse_audit.md").exists()
+
+    import json as json_mod
+    payload = json_mod.loads((tmp_path / "parse_audit.json").read_text())
+    assert payload["audit_status"] == "completed"
+    assert payload["elapsed_ms"] == 250
+    assert "table_candidate_count" in payload["summary"]
+    assert payload["verdicts"]["text_readiness"] == "good"
+
+
+@pytest.mark.xfail(
+    reason="chmod(0o444) is not enforced for owners on Windows",
+    strict=False,
+)
+def test_write_audit_artifacts_unwritable_dir(tmp_path):
+    import os
+    unwritable = tmp_path / "locked"
+    unwritable.mkdir()
+    unwritable.chmod(0o444)
+    try:
+        with pytest.raises(Exception):
+            write_audit_artifacts(
+                artifact_dir=unwritable,
+                content_hash="c" * 64,
+                audit_run_id="run-xyz",
+                audit_status="completed",
+                summary=_make_summary(),
+                verdicts=_make_verdicts(),
+                elapsed_ms=100,
+                fallback_used=False,
+                parser_name="docling",
+            )
+    finally:
+        unwritable.chmod(0o755)

@@ -29,3 +29,6 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.0.3",
 ]
+
+[tool.pytest.ini_options]
+tmp_path_retention_policy = "failed"
