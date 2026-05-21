@@ -485,3 +485,156 @@ def test_write_audit_artifacts_unwritable_dir(tmp_path):
             )
     finally:
         unwritable.chmod(0o755)
+
+
+# ── service tests ───────────────────────────────────────────────────────────────
+
+from docifer_backend.audit.service import ParseQualityReport, ParseQualityService
+from docifer_backend.ingestion.models import Document
+
+
+def _write_canonical(path: Path, *, parser_name: str = "docling", errors: list | None = None) -> None:
+    docling_path = path.parent / "docling.json"
+    md_path = path.parent / "document.md"
+    docling_path.write_text(
+        json.dumps(
+            {
+                "schema_name": "DoclingDocument",
+                "tables": [
+                    {
+                        "label": "table",
+                        "prov": [{"page_no": 2}],
+                        "data": {
+                            "num_rows": 4,
+                            "num_cols": 3,
+                            "table_cells": [
+                                {"text": "H1", "column_header": True, "row_header": False,
+                                 "start_row_offset_idx": 0, "start_col_offset_idx": 0},
+                            ],
+                        },
+                    }
+                ],
+                "pictures": [
+                    {
+                        "label": "picture",
+                        "prov": [{"page_no": 3}],
+                        "captions": [{"text": "Figure 1. Revenue over time."}],
+                    }
+                ],
+                "texts": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    md_path.write_text(
+        "\n\n".join(
+            f"<!-- page {i} -->\n\n{'Financial data and analysis. ' * 30}" for i in range(1, 11)
+        ),
+        encoding="utf-8",
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "docifer.canonical_document.v1",
+                "document": {"content_hash": "a" * 64, "filename": "test.pdf"},
+                "parser": {"name": parser_name, "version": "2.94.0"},
+                "artifacts": {
+                    "docling_json": str(docling_path),
+                    "markdown": str(md_path),
+                },
+                "parse": {
+                    "page_count": 10,
+                    "table_count": 1,
+                    "figure_count": 1,
+                    "errors": errors or [],
+                },
+                "structures": {"tables": {"count": 1}, "figures": {"count": 1}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _seed_document(session_factory, content_hash: str = "a" * 64) -> str:
+    with session_factory() as session:
+        doc = Document(
+            filename="test.pdf",
+            source_path="/tmp/test.pdf",
+            content_hash=content_hash,
+            file_size_bytes=5000,
+        )
+        session.add(doc)
+        session.commit()
+        return doc.id
+
+
+def test_service_full_audit_run(tmp_path, session_factory):
+    canonical_path = tmp_path / "canonical.json"
+    _write_canonical(canonical_path)
+    _seed_document(session_factory)
+
+    service = ParseQualityService(session_factory=session_factory)
+    report = service.audit(canonical_path, "a" * 64)
+
+    assert report.audit_status == "completed"
+    assert report.quality_status is not None
+    assert report.text_readiness is not None
+    assert report.elapsed_ms is not None
+    assert report.error_message is None
+    assert report.failed_stage is None
+
+    with session_factory() as session:
+        row = session.scalar(
+            select(ParseQualityAudit)
+            .where(ParseQualityAudit.content_hash == "a" * 64)
+        )
+    assert row is not None
+    assert row.audit_status == "completed"
+    assert row.is_latest is True
+    assert (tmp_path / "parse_audit.json").exists()
+    assert (tmp_path / "parse_audit.md").exists()
+
+
+def test_service_failed_stage_read_canonical(tmp_path, session_factory):
+    _seed_document(session_factory)
+    missing_path = tmp_path / "nonexistent_canonical.json"
+
+    service = ParseQualityService(session_factory=session_factory)
+    report = service.audit(missing_path, "a" * 64)
+
+    assert report.audit_status == "failed"
+    assert report.failed_stage == "read_canonical"
+    assert report.error_message is not None
+
+    with session_factory() as session:
+        row = session.scalar(
+            select(ParseQualityAudit)
+            .where(ParseQualityAudit.content_hash == "a" * 64)
+        )
+    assert row is not None
+    assert row.audit_status == "failed"
+    assert row.failed_stage == "read_canonical"
+
+
+def test_service_fallback_parser_path(tmp_path, session_factory):
+    canonical_path = tmp_path / "canonical.json"
+    _write_canonical(
+        canonical_path,
+        parser_name="pypdfium2-text",
+        errors=[{"type": "parser_selection", "message": "file too large"}],
+    )
+    _seed_document(session_factory)
+
+    service = ParseQualityService(session_factory=session_factory)
+    report = service.audit(canonical_path, "a" * 64)
+
+    assert report.audit_status == "completed"
+
+    with session_factory() as session:
+        row = session.scalar(
+            select(ParseQualityAudit)
+            .where(ParseQualityAudit.content_hash == "a" * 64)
+        )
+    assert row.fallback_used is True
+    assert row.fallback_reason == "size_threshold"
+    assert "fallback_parser_used" in row.risk_flags_json
