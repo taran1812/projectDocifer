@@ -59,6 +59,8 @@ def query_text(request: QueryRequest) -> QueryResponse:
         table_top_k=request.table_top_k,
         visual_top_k=request.visual_top_k,
         verify_citations=request.verify_citations,
+        rerank=request.rerank,
+        rerank_top_n=request.rerank_top_n,
     )
     evidence = _evidence_responses(outcome.evidence)
     table_evidence = _table_evidence_responses(outcome.table_evidence)
@@ -132,6 +134,10 @@ def _evidence_responses(chunks, *, include_chunk_ids: set[str] | None = None) ->
                 dense_score=chunk.dense_score,
                 lexical_score=chunk.lexical_score,
                 hybrid_score=chunk.hybrid_score,
+                rerank_score=chunk.rerank_score,
+                pre_rerank_rank=chunk.pre_rerank_rank,
+                post_rerank_rank=chunk.post_rerank_rank,
+                reranker_model=chunk.reranker_model,
                 retrieval_mode=chunk.retrieval_mode,
                 text=chunk.text,
                 source_path=chunk.source_path,

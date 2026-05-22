@@ -27,6 +27,10 @@ class RetrievedChunk:
     content_hash: str
     page_start: int | None
     page_end: int | None
+    rerank_score: float | None = None
+    pre_rerank_rank: int | None = None
+    post_rerank_rank: int | None = None
+    reranker_model: str | None = None
 
 
 def ensure_text_collection(

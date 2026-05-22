@@ -357,3 +357,60 @@ Current full-corpus eval result (`phase7g1_full_40q`, 40/40 questions):
   "failed": 0
 }
 ```
+
+## Phase 8 cross-encoder reranker
+
+Phase 8 adds an optional text-only reranker after dense, BM25, or hybrid retrieval. The default `/query` path is unchanged unless reranking is requested.
+
+Configuration:
+
+```text
+RERANKER_ENABLED=false
+RERANKER_MODEL=BAAI/bge-reranker-base
+RERANKER_CANDIDATE_TOP_N=20
+RERANKER_DEVICE=auto
+RERANKER_BATCH_SIZE=8
+RERANKER_MAX_LENGTH=512
+```
+
+Example reranked query:
+
+```json
+{
+  "question": "What do middle-income countries need to do to escape the middle-income trap?",
+  "content_hash": "8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8",
+  "top_k": 4,
+  "retrieval_mode": "hybrid",
+  "evidence_mode": "text",
+  "verify_citations": true,
+  "rerank": true,
+  "rerank_top_n": 20
+}
+```
+
+When enabled, Docifer retrieves `rerank_top_n` text candidates, reranks them with the local cross-encoder, and sends only the final `top_k` to answer generation. If the model is unavailable or inference fails, the query falls back to the original retrieval order and records the failure in `debug`.
+
+Reranker diagnostics include:
+
+- `rerank_used`
+- `reranker_status`
+- `rerank_candidate_count`
+- `rerank_latency_ms`
+- `pre_rerank_top_chunk_ids`
+- `post_rerank_top_chunk_ids`
+
+Validated Phase 8 eval results:
+
+```text
+Phase 7G.1 baseline recall:          0.6625
+BAAI/bge-reranker-base recall:       0.6883
+MiniLM fallback recall:              0.6750
+```
+
+Both reranker runs kept `failed = 0`, `false_abstention_rate = 0.0556`, and `citation_presence_rate = 0.95`. Reranking remains disabled by default because the quality gain is real but latency increases.
+
+Detailed notes are in:
+
+```text
+docs/phase8-cross-encoder-reranker.md
+```

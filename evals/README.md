@@ -147,3 +147,41 @@ Result:
 ```
 
 The summary JSON now includes `true_abstention_accuracy` and `false_abstention_rate` as separate metrics in addition to the combined `abstention_correct_rate`.
+
+## Phase 8 - Cross-Encoder Reranker Checks
+
+Phase 8 adds optional text reranking. The baseline path remains unchanged unless `--rerank` is used.
+
+Baseline run:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_baseline_hybrid --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Reranked run:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_hybrid_reranker --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations --rerank --rerank-top-n 20
+```
+
+Compare the reranked run against `phase7g1_full_40q`:
+
+- `average_expected_answer_token_recall`
+- `citation_presence_rate`
+- `true_abstention_accuracy`
+- `false_abstention_rate`
+- `latency_ms_p50`
+- `latency_ms_p95`
+- category-level recall in `report.md`
+
+Reranker failures should not create failed eval rows. They should fall back to original retrieval and appear in query debug as `reranker_status = "unavailable"` or `"failed"`.
+
+Validated Phase 8 results:
+
+| Run | Model | Recall | Citation | False Abstention | True Abstention | P50 Latency | P95 Latency |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `phase7g1_full_40q` | none | 0.6625 | 0.975 | 0.0556 | 0.75 | 3327.75 | 12144.30 |
+| `phase8_hybrid_reranker` | `BAAI/bge-reranker-base` | 0.6883 | 0.950 | 0.0556 | 1.00 | 8172.52 | 17959.53 |
+| `phase8_hybrid_reranker_minilm` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 0.6750 | 0.950 | 0.0556 | 1.00 | 4508.78 | 13809.00 |
+
+Phase 8 is valid as optional. Keep `RERANKER_ENABLED=false` by default until reranking can reach the `0.70+` recall target with acceptable latency.

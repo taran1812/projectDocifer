@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     qdrant_table_collection: str = "docifer_table_evidence"
     qdrant_visual_collection: str = "docifer_visual_evidence"
     qdrant_upsert_batch_size: int = 128
+    reranker_enabled: bool = False
+    reranker_model: str = "BAAI/bge-reranker-base"
+    reranker_candidate_top_n: int = 20
+    reranker_device: str = "auto"
+    reranker_batch_size: int = 8
+    reranker_max_length: int = 512
     golden_eval_path: str = "docifer_phase1_corpus_and_golden_eval_v1.xlsx"
     eval_runs_dir: str = "evals/runs"
 

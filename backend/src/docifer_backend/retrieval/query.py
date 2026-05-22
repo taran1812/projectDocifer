@@ -18,6 +18,7 @@ from docifer_backend.providers.base import (
 from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import BM25Retriever
 from docifer_backend.retrieval.hybrid import merge_hybrid_results
+from docifer_backend.retrieval.reranking import CrossEncoderReranker, RerankerUnavailableError
 from docifer_backend.retrieval.tables.reasoning import reason_over_table_evidence
 from docifer_backend.retrieval.tables.retriever import TableRetriever
 from docifer_backend.retrieval.tables.schemas import (
@@ -63,6 +64,26 @@ def _is_abstention(answer: str) -> bool:
     return any(m in normalised for m in _ABSTENTION_MARKERS)
 
 
+def _disabled_rerank_debug(
+    *,
+    rerank_requested: bool,
+    reranker_model: str,
+    candidate_top_n: int,
+) -> dict:
+    return {
+        "rerank_requested": rerank_requested,
+        "rerank_used": False,
+        "reranker_model": reranker_model if rerank_requested else None,
+        "reranker_status": "not_applicable" if rerank_requested else "disabled",
+        "rerank_candidate_top_n": candidate_top_n if rerank_requested else None,
+        "rerank_candidate_count": None,
+        "rerank_latency_ms": None,
+        "pre_rerank_top_chunk_ids": [],
+        "post_rerank_top_chunk_ids": [],
+        "rerank_error": None,
+    }
+
+
 @dataclass(frozen=True)
 class QueryCitation:
     citation_id: str
@@ -75,6 +96,10 @@ class QueryCitation:
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+    rerank_score: float | None = None
+    pre_rerank_rank: int | None = None
+    post_rerank_rank: int | None = None
+    reranker_model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,12 +129,20 @@ class TextQueryService:
         collection_name: str | None = None,
         table_collection_name: str | None = None,
         visual_collection_name: str | None = None,
+        reranker: object | None = None,
     ) -> None:
         settings = get_settings()
         self.ai_provider = ai_provider or get_ai_provider()
         self.qdrant_client = qdrant_client or get_qdrant_client()
         self.session_factory = session_factory or get_session_factory()
         self.collection_name = collection_name or settings.qdrant_text_collection
+        self.reranker_enabled_default = settings.reranker_enabled
+        self.reranker_model = settings.reranker_model
+        self.reranker_candidate_top_n = settings.reranker_candidate_top_n
+        self.reranker_device = settings.reranker_device
+        self.reranker_batch_size = settings.reranker_batch_size
+        self.reranker_max_length = settings.reranker_max_length
+        self._reranker = reranker
         self.bm25_retriever = BM25Retriever(session_factory=self.session_factory)
         self.table_collection_name = table_collection_name or settings.qdrant_table_collection
         self.table_retriever = TableRetriever(
@@ -137,11 +170,19 @@ class TextQueryService:
         table_top_k: int = 4,
         visual_top_k: int = 3,
         verify_citations: bool = False,
+        rerank: bool | None = None,
+        rerank_top_n: int | None = None,
     ) -> QueryOutcome:
         retrieval_mode = retrieval_mode.lower()
         evidence_mode = evidence_mode.lower()
         if evidence_mode not in {"text", "table", "visual", "auto"}:
             raise ValueError(f"Unsupported evidence mode: {evidence_mode}")
+        rerank_requested = self.reranker_enabled_default if rerank is None else rerank
+        rerank_candidate_top_n = rerank_top_n or self.reranker_candidate_top_n
+        if rerank_requested and rerank_candidate_top_n < top_k:
+            raise ValueError("rerank_top_n must be greater than or equal to top_k.")
+        if rerank_requested and rerank_candidate_top_n > 50:
+            raise ValueError("rerank_top_n must be less than or equal to 50.")
 
         table_intent = detect_table_intent(question)
         visual_intent = detect_visual_intent(question)
@@ -154,12 +195,19 @@ class TextQueryService:
         )
 
         retrieved: list[RetrievedChunk] = []
+        rerank_debug = _disabled_rerank_debug(
+            rerank_requested=rerank_requested,
+            reranker_model=self.reranker_model,
+            candidate_top_n=rerank_candidate_top_n,
+        )
         if should_retrieve_text:
-            retrieved = self._retrieve(
+            retrieved, rerank_debug = self._retrieve_with_optional_rerank(
                 question=question,
                 content_hash=content_hash,
                 top_k=top_k,
                 retrieval_mode=retrieval_mode,
+                rerank=rerank_requested,
+                rerank_top_n=rerank_candidate_top_n,
             )
 
         table_retrieval_latency_ms = None
@@ -243,6 +291,7 @@ class TextQueryService:
             "visual_interpretation": visual_interpretation_debug(visual_interpretation),
             "content_hash_scope": "specific" if content_hash else "all",
         }
+        debug.update(rerank_debug)
 
         if not retrieved and not table_results and not visual_results:
             answer = (
@@ -314,12 +363,18 @@ class TextQueryService:
             and evidence_mode in {"text", "auto"}
         ):
             retry_top_k = min(top_k * 2, 8)
-            retry_retrieved = self._retrieve(
+            retry_retrieved, retry_rerank_debug = self._retrieve_with_optional_rerank(
                 question=question,
                 content_hash=content_hash,
                 top_k=retry_top_k,
                 retrieval_mode=retrieval_mode,
+                rerank=rerank_requested,
+                rerank_top_n=max(rerank_candidate_top_n, retry_top_k),
             )
+            rerank_debug = {
+                f"retry_{key}": value
+                for key, value in retry_rerank_debug.items()
+            }
             abstention_retry_triggered = True
             retry_grounding = [
                 GroundingEvidence(
@@ -397,6 +452,7 @@ class TextQueryService:
                 "retry_answer_was_abstention": retry_answer_was_abstention,
             }
         )
+        debug.update(rerank_debug)
 
         return QueryOutcome(
             answer=answer,
@@ -462,6 +518,86 @@ class TextQueryService:
                 top_k=top_k,
             )
         raise ValueError(f"Unsupported retrieval mode: {retrieval_mode}")
+
+    def _retrieve_with_optional_rerank(
+        self,
+        *,
+        question: str,
+        content_hash: str | None,
+        top_k: int,
+        retrieval_mode: str,
+        rerank: bool,
+        rerank_top_n: int,
+    ) -> tuple[list[RetrievedChunk], dict]:
+        candidate_top_n = max(rerank_top_n, top_k) if rerank else top_k
+        candidates = self._retrieve(
+            question=question,
+            content_hash=content_hash,
+            top_k=candidate_top_n,
+            retrieval_mode=retrieval_mode,
+        )
+        debug = {
+            "rerank_requested": rerank,
+            "rerank_used": False,
+            "reranker_model": self.reranker_model if rerank else None,
+            "reranker_status": "disabled" if not rerank else "no_candidates",
+            "rerank_candidate_top_n": candidate_top_n if rerank else None,
+            "rerank_candidate_count": len(candidates) if rerank else None,
+            "rerank_latency_ms": None,
+            "pre_rerank_top_chunk_ids": [chunk.chunk_id for chunk in candidates[:top_k]] if rerank else [],
+            "post_rerank_top_chunk_ids": [],
+            "rerank_error": None,
+        }
+        if not rerank:
+            return candidates[:top_k], debug
+        if not candidates:
+            return [], debug
+
+        start = time.perf_counter()
+        try:
+            reranked = self._get_reranker().rerank(
+                question,
+                candidates,
+                top_k=top_k,
+            )
+        except RerankerUnavailableError as exc:
+            debug.update(
+                {
+                    "reranker_status": "unavailable",
+                    "rerank_error": str(exc),
+                    "rerank_latency_ms": int((time.perf_counter() - start) * 1000),
+                }
+            )
+            return candidates[:top_k], debug
+        except Exception as exc:
+            debug.update(
+                {
+                    "reranker_status": "failed",
+                    "rerank_error": str(exc),
+                    "rerank_latency_ms": int((time.perf_counter() - start) * 1000),
+                }
+            )
+            return candidates[:top_k], debug
+
+        debug.update(
+            {
+                "rerank_used": True,
+                "reranker_status": "applied",
+                "rerank_latency_ms": int((time.perf_counter() - start) * 1000),
+                "post_rerank_top_chunk_ids": [chunk.chunk_id for chunk in reranked],
+            }
+        )
+        return reranked, debug
+
+    def _get_reranker(self) -> object:
+        if self._reranker is None:
+            self._reranker = CrossEncoderReranker(
+                model_name=self.reranker_model,
+                device=self.reranker_device,
+                batch_size=self.reranker_batch_size,
+                max_length=self.reranker_max_length,
+            )
+        return self._reranker
 
 
 def _format_source(chunk: RetrievedChunk) -> str:
@@ -547,6 +683,10 @@ def _build_answer_citations(
                 dense_score=chunk.dense_score,
                 lexical_score=chunk.lexical_score,
                 hybrid_score=chunk.hybrid_score,
+                rerank_score=chunk.rerank_score,
+                pre_rerank_rank=chunk.pre_rerank_rank,
+                post_rerank_rank=chunk.post_rerank_rank,
+                reranker_model=chunk.reranker_model,
             )
         )
     return citations

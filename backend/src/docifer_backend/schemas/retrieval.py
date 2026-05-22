@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TextIndexRequest(BaseModel):
@@ -41,6 +41,14 @@ class QueryRequest(BaseModel):
     table_top_k: int = Field(default=4, ge=1, le=10)
     visual_top_k: int = Field(default=3, ge=1, le=5)
     verify_citations: bool = False
+    rerank: bool | None = None
+    rerank_top_n: int | None = Field(default=None, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def validate_reranking(self):
+        if self.rerank_top_n is not None and self.rerank_top_n < self.top_k:
+            raise ValueError("rerank_top_n must be greater than or equal to top_k.")
+        return self
 
 
 class CitationResponse(BaseModel):
@@ -54,6 +62,10 @@ class CitationResponse(BaseModel):
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+    rerank_score: float | None = None
+    pre_rerank_rank: int | None = None
+    post_rerank_rank: int | None = None
+    reranker_model: str | None = None
 
 
 class EvidenceResponse(BaseModel):
@@ -63,6 +75,10 @@ class EvidenceResponse(BaseModel):
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+    rerank_score: float | None = None
+    pre_rerank_rank: int | None = None
+    post_rerank_rank: int | None = None
+    reranker_model: str | None = None
     retrieval_mode: str
     text: str
     source_path: str

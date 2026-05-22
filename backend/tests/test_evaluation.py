@@ -38,7 +38,17 @@ class FakeQueryService:
         table_top_k: int = 4,
         visual_top_k: int = 3,
         verify_citations: bool = False,
+        rerank: bool = False,
+        rerank_top_n: int | None = None,
     ):
+        self.last_call = {
+            "top_k": top_k,
+            "retrieval_mode": retrieval_mode,
+            "evidence_mode": evidence_mode,
+            "verify_citations": verify_citations,
+            "rerank": rerank,
+            "rerank_top_n": rerank_top_n,
+        }
         return SimpleNamespace(
             answer="Middle-income countries should move from 1i to 2i and then 3i. [C1]",
             citations=[
@@ -90,14 +100,21 @@ def test_score_answer_tracks_citation_presence_and_expected_recall():
 
 
 def test_evaluation_runner_writes_results_and_skips_unindexed_docs(tmp_path):
+    query_service = FakeQueryService()
     runner = EvaluationRunner(
         output_root=tmp_path,
-        query_service=FakeQueryService(),
+        query_service=query_service,
         registry=FakeRegistry(),
         trace_enabled=False,
     )
 
-    outcome = runner.run(run_name="test-run", doc_ids={"DOC-005"}, top_k=2)
+    outcome = runner.run(
+        run_name="test-run",
+        doc_ids={"DOC-005"},
+        top_k=2,
+        rerank=True,
+        rerank_top_n=6,
+    )
 
     assert outcome.summary["evaluated"] == 3
     assert outcome.summary["by_status"]["evaluated"] == 3
@@ -106,6 +123,8 @@ def test_evaluation_runner_writes_results_and_skips_unindexed_docs(tmp_path):
     assert (tmp_path / "test-run" / "summary.json").exists()
     assert (tmp_path / "test-run" / "report.md").exists()
     assert (tmp_path / "test-run" / "ragas_input.jsonl").exists()
+    assert query_service.last_call["rerank"] is True
+    assert query_service.last_call["rerank_top_n"] == 6
 
 
 def test_resolve_evidence_mode_routes_visual_and_table_categories():

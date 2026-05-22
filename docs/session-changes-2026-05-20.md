@@ -3273,3 +3273,119 @@ All 12 documents in the golden evaluation set are fully indexed.
 | DOC-012 | `9789240115569-eng.pdf` (WHO) | 902 | 61 spans | 342 pages |
 
 Note: All table evidence is fallback text-span extraction except DOC-005 which has 3 structured Docling tables.
+
+---
+
+# Phase 8 - Cross-Encoder Reranker
+
+## Goal
+
+Improve text retrieval quality after the Phase 7G.1 baseline by reranking a larger dense/BM25/hybrid candidate pool before answer generation.
+
+Baseline target from `phase7g1_full_40q`:
+
+```json
+{
+  "failed": 0,
+  "citation_presence_rate": 0.975,
+  "average_expected_answer_token_recall": 0.6625,
+  "true_abstention_accuracy": 0.75,
+  "false_abstention_rate": 0.0556
+}
+```
+
+## Implemented Changes
+
+- Added optional reranker settings:
+  - `RERANKER_ENABLED`
+  - `RERANKER_MODEL`
+  - `RERANKER_CANDIDATE_TOP_N`
+  - `RERANKER_DEVICE`
+  - `RERANKER_BATCH_SIZE`
+  - `RERANKER_MAX_LENGTH`
+- Added `backend/src/docifer_backend/retrieval/reranking.py`.
+- Added lazy local cross-encoder loading through Transformers/Torch.
+- Added `FakeReranker` for unit tests.
+- Added `/query` request fields:
+  - `rerank`
+  - `rerank_top_n`
+- Added rerank metadata to text evidence and citations:
+  - `rerank_score`
+  - `pre_rerank_rank`
+  - `post_rerank_rank`
+  - `reranker_model`
+- Updated text query flow:
+  - retrieve `rerank_top_n` candidates when reranking is enabled,
+  - rerank the candidate pool,
+  - keep final `top_k`,
+  - fall back to original candidate order if reranker load or inference fails.
+- Added reranker debug fields:
+  - `rerank_requested`
+  - `rerank_used`
+  - `reranker_status`
+  - `rerank_candidate_top_n`
+  - `rerank_candidate_count`
+  - `rerank_latency_ms`
+  - `pre_rerank_top_chunk_ids`
+  - `post_rerank_top_chunk_ids`
+  - `rerank_error`
+- Updated evaluation runner with:
+  - `--rerank`
+  - `--rerank-top-n`
+- Added Phase 8 documentation:
+  - `docs/phase8-cross-encoder-reranker.md`
+  - backend README notes
+  - eval README commands
+
+## Validation Plan
+
+Run tests:
+
+```powershell
+uv run --project backend pytest backend/tests/test_reranking.py backend/tests/test_evaluation.py -v --tb=short
+uv run --project backend pytest backend/tests -v --tb=short
+```
+
+Run eval comparison:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_baseline_hybrid --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_hybrid_reranker --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations --rerank --rerank-top-n 20
+```
+
+## Gate
+
+Phase 8 is code-complete when tests pass. It is eval-valid only after the baseline-vs-reranker eval shows no hard failures and confirms whether recall improves over `0.6625`.
+
+## Validation Results
+
+Automated backend validation:
+
+```text
+Focused reranker/eval/schema tests: 42 passed
+Full backend suite: 109 passed, 1 xfailed
+Compile check: passed
+```
+
+Full 40-question eval comparison:
+
+| Run | Model | Recall | Citation | False Abstention | True Abstention | P50 Latency | P95 Latency | Failed |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `phase7g1_full_40q` | none | 0.6625 | 0.975 | 0.0556 | 0.75 | 3327.75 | 12144.30 | 0 |
+| `phase8_hybrid_reranker` | `BAAI/bge-reranker-base` | 0.6883 | 0.950 | 0.0556 | 1.00 | 8172.52 | 17959.53 | 0 |
+| `phase8_hybrid_reranker_minilm` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 0.6750 | 0.950 | 0.0556 | 1.00 | 4508.78 | 13809.00 | 0 |
+
+## Phase 8 Verdict
+
+Phase 8 is valid as an optional reranker:
+
+- Recall improved over the Phase 7G.1 baseline.
+- Hard failures stayed at `0`.
+- Citation presence stayed at the `0.95` acceptance floor.
+- False abstentions stayed unchanged at `0.0556`.
+- True abstention accuracy improved to `1.0`.
+
+The reranker should remain disabled by default because neither model reached the aspirational `0.70+` recall target and both increase latency. Use `BAAI/bge-reranker-base` for quality experiments and `cross-encoder/ms-marco-MiniLM-L-6-v2` when latency matters more.

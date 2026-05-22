@@ -46,6 +46,8 @@ class EvaluationResult:
     content_hash: str | None = None
     retrieval_mode: str = "dense"
     evidence_mode: str = "text"
+    rerank: bool = False
+    rerank_top_n: int | None = None
     verifier_verdict: str | None = None
 
 
@@ -83,6 +85,8 @@ class EvaluationRunner:
         retrieval_mode: str = "dense",
         evidence_mode: str = "category",
         verify_citations: bool = False,
+        rerank: bool = False,
+        rerank_top_n: int = 20,
     ) -> EvaluationRunOutcome:
         resolved_run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         output_dir = self.output_root / resolved_run_name
@@ -118,6 +122,8 @@ class EvaluationRunner:
                     retrieval_mode=retrieval_mode,
                     evidence_mode=evidence_mode,
                     verify_citations=verify_citations,
+                    rerank=rerank,
+                    rerank_top_n=rerank_top_n,
                 )
             )
 
@@ -148,6 +154,8 @@ class EvaluationRunner:
         retrieval_mode: str,
         evidence_mode: str,
         verify_citations: bool,
+        rerank: bool,
+        rerank_top_n: int,
     ) -> EvaluationResult:
         query_service = self._get_query_service()
         resolved_evidence_mode = resolve_evidence_mode(question, requested=evidence_mode)
@@ -161,6 +169,8 @@ class EvaluationRunner:
             "retrieval_mode": retrieval_mode,
             "evidence_mode": resolved_evidence_mode,
             "verify_citations": verify_citations,
+            "rerank": rerank,
+            "rerank_top_n": rerank_top_n,
         }
         started = time.perf_counter()
         try:
@@ -184,6 +194,8 @@ class EvaluationRunner:
                     table_top_k=top_k,
                     visual_top_k=min(max(top_k, 1), 5),
                     verify_citations=verify_citations,
+                    rerank=rerank,
+                    rerank_top_n=rerank_top_n,
                 )
                 latency_ms = round((time.perf_counter() - started) * 1000, 2)
                 table_evidence = list(getattr(outcome, "table_evidence", []) or [])
@@ -242,6 +254,8 @@ class EvaluationRunner:
                     content_hash=doc_ref.content_hash,
                     retrieval_mode=retrieval_mode,
                     evidence_mode=resolved_evidence_mode,
+                    rerank=rerank,
+                    rerank_top_n=rerank_top_n if rerank else None,
                     verifier_verdict=(
                         outcome.citation_verification.verdict
                         if outcome.citation_verification is not None
@@ -256,6 +270,8 @@ class EvaluationRunner:
                         "latency_ms": latency_ms,
                         "retrieval_mode": retrieval_mode,
                         "evidence_mode": resolved_evidence_mode,
+                        "rerank": rerank,
+                        "rerank_top_n": rerank_top_n if rerank else None,
                         "verifier_verdict": result.verifier_verdict,
                     }
                 )
@@ -273,6 +289,8 @@ class EvaluationRunner:
                 latency_ms=round((time.perf_counter() - started) * 1000, 2),
                 content_hash=doc_ref.content_hash,
                 evidence_mode=resolved_evidence_mode,
+                rerank=rerank,
+                rerank_top_n=rerank_top_n if rerank else None,
             )
         except Exception as exc:
             return EvaluationResult(
@@ -287,6 +305,8 @@ class EvaluationRunner:
                 latency_ms=round((time.perf_counter() - started) * 1000, 2),
                 content_hash=doc_ref.content_hash,
                 evidence_mode=resolved_evidence_mode,
+                rerank=rerank,
+                rerank_top_n=rerank_top_n if rerank else None,
             )
 
     def _get_query_service(self) -> Any:
@@ -340,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--retrieval-mode", default="dense", choices=["dense", "bm25", "hybrid"])
     parser.add_argument("--evidence-mode", default="category", choices=["category", "text", "table", "visual", "auto"])
     parser.add_argument("--verify-citations", action="store_true")
+    parser.add_argument("--rerank", action="store_true")
+    parser.add_argument("--rerank-top-n", type=int, default=20)
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args(argv)
 
@@ -356,6 +378,8 @@ def main(argv: list[str] | None = None) -> int:
         retrieval_mode=args.retrieval_mode,
         evidence_mode=args.evidence_mode,
         verify_citations=args.verify_citations,
+        rerank=args.rerank,
+        rerank_top_n=args.rerank_top_n,
     )
     print(json.dumps(asdict(outcome), ensure_ascii=False, indent=2, sort_keys=True))
     return 0
