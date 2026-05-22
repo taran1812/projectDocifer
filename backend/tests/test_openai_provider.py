@@ -1,7 +1,10 @@
 import json
 
-from docifer_backend.providers.base import VisualEvidenceInput
-from docifer_backend.providers.openai_provider import OpenAIProvider
+import pytest
+from unittest.mock import patch
+
+from docifer_backend.providers.base import ProviderRateLimitError, VisualEvidenceInput
+from docifer_backend.providers.openai_provider import OpenAIProvider, _with_openai_retry
 
 
 class FakeResponses:
@@ -93,11 +96,6 @@ def test_openai_provider_interpret_visual_evidence_abstains_without_artifact():
     assert "No readable visual artifacts" in result.abstain_reason
     assert result.used_citation_ids == ["V1"]
 
-
-import pytest
-from unittest.mock import patch
-from docifer_backend.providers.base import ProviderRateLimitError
-from docifer_backend.providers.openai_provider import _with_openai_retry
 
 
 def test_with_openai_retry_succeeds_on_first_attempt():

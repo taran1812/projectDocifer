@@ -213,6 +213,7 @@ class OpenAIProvider:
                     "schema": _VISUAL_INTERPRETATION_SCHEMA,
                 }
             },
+            max_output_tokens=1000,
         ))
 
         output_text = (getattr(response, "output_text", None) or "").strip()
