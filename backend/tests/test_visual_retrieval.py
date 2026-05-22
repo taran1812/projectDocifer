@@ -486,3 +486,71 @@ def test_visual_indexing_is_idempotent(tmp_path, session_factory):
 
     assert first.status == VISUAL_INDEX_STATUS_INDEXED
     assert second.reused_existing is True
+
+
+from docifer_backend.retrieval.visuals.retriever import VisualRetriever
+
+
+def test_visual_retriever_hybrid_returns_picture_record(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    qdrant_client = _index_visual_fixture(canonical_path, content_hash, source_path, session_factory)
+
+    results = VisualRetriever(
+        ai_provider=FakeVisualAIProvider(),
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="test_visual_evidence",
+    ).search(
+        query="Which figure shows the main findings?",
+        content_hash=content_hash,
+        top_k=5,
+        retrieval_mode="visual_hybrid",
+    )
+
+    assert results
+    assert results[0].retrieval_mode == "visual_hybrid"
+    assert results[0].hybrid_score is not None
+    picture_results = [r for r in results if r.visual_type == "docling_picture"]
+    assert picture_results, "Expected at least one docling_picture in hybrid results"
+
+
+def test_visual_retriever_bm25_scores_figure_label_match(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    qdrant_client = _index_visual_fixture(canonical_path, content_hash, source_path, session_factory)
+
+    results = VisualRetriever(
+        ai_provider=FakeVisualAIProvider(),
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="test_visual_evidence",
+    ).search(
+        query="Figure 1 main findings",
+        content_hash=content_hash,
+        top_k=5,
+        retrieval_mode="visual_bm25",
+    )
+
+    assert results
+    assert results[0].lexical_score is not None
+    assert results[0].dense_score is None
+
+
+def _index_visual_fixture(canonical_path, content_hash, source_path, session_factory) -> QdrantClient:
+    with session_factory() as session:
+        session.add(Document(
+            filename="sample.pdf",
+            source_path=source_path,
+            content_hash=content_hash,
+            file_size_bytes=100,
+        ))
+        session.commit()
+
+    qdrant_client = QdrantClient(":memory:")
+    VisualIndexingService(
+        session_factory=session_factory,
+        ai_provider=FakeVisualAIProvider(),
+        qdrant_client=qdrant_client,
+        collection_name="test_visual_evidence",
+        initialize_schema=False,
+    ).index_canonical_document(canonical_path)
+    return qdrant_client
