@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     docling_max_file_size_bytes: int = 1_000_000
     qdrant_text_collection: str = "docifer_text_chunks"
     qdrant_table_collection: str = "docifer_table_evidence"
+    qdrant_visual_collection: str = "docifer_visual_evidence"
     qdrant_upsert_batch_size: int = 128
     golden_eval_path: str = "docifer_phase1_corpus_and_golden_eval_v1.xlsx"
     eval_runs_dir: str = "evals/runs"
