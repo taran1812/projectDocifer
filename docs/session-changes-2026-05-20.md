@@ -3047,6 +3047,129 @@ bb40d51 fix(eval): expand abstention detection to cover contractions
 
 ---
 
+# Phase 7G.1 — Abstention Correction Pass (2026-05-22)
+
+## Baseline
+
+Run: `phase7g_full_40q`
+
+```json
+{
+  "abstention_correct_rate": 0.2857,
+  "true_abstention_accuracy": null,
+  "false_abstention_rate": null
+}
+```
+
+## Fixes
+
+### Fix 1 — Tighter Abstention Markers
+
+Removed broad markers that appear inside valid answers:
+`does not include`, `does not provide`, `not available`, `not found`, `not include`, `not mention`, `no evidence`, `not enough evidence`, `cannot determine` (standalone).
+
+Replaced with first-person/system inability phrases only:
+`i do not have enough evidence`, `i cannot determine`, `i cannot answer`, `the retrieved evidence does not`, `the retrieved evidence is insufficient`, `the evidence does not contain`, `unable to determine/answer`, etc.
+
+Commit: `4935d7d`
+
+### Fix 2 — Split Abstention Metric
+
+`build_summary` now reports:
+- `true_abstention_accuracy` — for `should_abstain=True` questions: did we correctly abstain?
+- `false_abstention_rate` — for `should_abstain=False` questions: did we incorrectly abstain?
+- `abstention_correct_rate` — combined (kept for backward compat)
+
+Commit: `4935d7d`
+
+### Fix 3 — Table-Mode Retry
+
+When `evidence_mode="table"` and initial table retrieval returns 0 results: retry with `table_top_k * 2` before giving up.
+
+Commit: `4935d7d`
+
+### Fix 4 — Stricter Unsupported Rule in Prompt
+
+Added two new abstention rules to `generate_grounded_answer`:
+- If question asks for specific entity/metric/number/date not in evidence, abstain — do not substitute loosely related context.
+- If question is about personal or private information not in corporate documents, abstain.
+
+Commit: `4935d7d`
+
+### Fix 5 — Curly Apostrophe Normalisation
+
+Model output uses curly apostrophes (`'` U+2019) rather than straight (`'` U+0027). The `.replace("don't", ...)` call was silently failing on model output.
+
+Added pre-normalisation step: replace `'` and `'` → `'` before contraction expansion.
+
+This fixed QA-037 and QA-038 detection.
+
+Commit: `319c42f`
+
+## Final Eval — phase7g1_full_40q
+
+```json
+{
+  "evaluated": 40,
+  "failed": 0,
+  "abstention_correct_rate": 0.5,
+  "true_abstention_accuracy": 0.75,
+  "false_abstention_rate": 0.0556,
+  "citation_presence_rate": 0.975,
+  "average_expected_answer_token_recall": 0.6625,
+  "latency_ms_p50": 3327.75,
+  "latency_ms_p95": 12144.3
+}
+```
+
+Per-category:
+
+| Category | n | Avg Recall | Citation % |
+|---|---|---:|---:|
+| Chart / Visual | 5 | 0.89 | 100% |
+| Text Factual | 14 | 0.82 | 100% |
+| Text Synthesis | 6 | 0.49 | 100% |
+| Mixed Modality | 2 | 0.58 | 100% |
+| Table Lookup | 5 | 0.59 | 100% |
+| Table Reasoning | 4 | 0.49 | 75% |
+| Unsupported / Abstention | 4 | 0.38 | 100% |
+
+## Abstention Breakdown
+
+| QA | Should abstain | Correct | Notes |
+|---|---|---|---|
+| QA-017 | No | ❌ | Table evidence found but doesn't have exact FY24 approved breakdown — remaining retrieval gap |
+| QA-032 | No | ❌ | Retrieval too sparse for this CFR requirement |
+| QA-037 | Yes | ✅ | Curly apostrophe fix — "I don't have" now detected |
+| QA-038 | Yes | ✅ | |
+| QA-039 | Yes | ✅ | |
+| QA-040 | Yes | ❌ | Model correctly stated "no price is recommended" — factually accurate but golden expects abstention |
+
+## Progress vs Baselines
+
+| Metric | Phase 7F | Phase 7G | Phase 7G.1 |
+|---|---|---|---|
+| abstention_correct_rate | 0.375 | 0.286 | 0.500 |
+| true_abstention_accuracy | — | — | 0.75 |
+| false_abstention_rate | — | — | 5.6% |
+| avg token recall | 0.647 | 0.625 | 0.663 |
+| citation_presence | 0.925 | 0.925 | 0.975 |
+| hard failures | 1 | 0 | 0 |
+
+## Remaining Root Causes
+
+- QA-017, QA-032: genuine retrieval gaps — relevant table data exists but isn't surfaced at top_k=4 even with retry
+- QA-040: factually correct answer ("NASA does not recommend a price") conflicts with golden expectation of silence — golden dataset edge case
+
+## Phase 7G.1 Commits
+
+```text
+4935d7d fix(phase7g.1): tighter abstention markers, split metric, table retry, stricter prompt
+319c42f fix(eval): normalise curly apostrophes before contraction detection
+```
+
+---
+
 # Phase 7E Live Validation and Corpus Expansion (2026-05-22)
 
 ## Server Restart
