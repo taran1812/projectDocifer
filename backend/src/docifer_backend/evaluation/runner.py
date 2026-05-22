@@ -351,12 +351,12 @@ def resolve_evidence_mode(question: GoldenQuestion, *, requested: str = "categor
         return requested
     category = question.category.lower()
     expected = (question.expected_evidence_type or "").lower()
+    if "mixed" in category:
+        return "auto"
     if any(term in category or term in expected for term in ["chart", "visual", "figure", "image", "graph"]):
         return "visual"
     if "table" in category or "table" in expected:
         return "table"
-    if "mixed" in category:
-        return "auto"
     return "text"
 
 

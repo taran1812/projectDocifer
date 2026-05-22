@@ -138,3 +138,30 @@ def test_detect_abstention_does_not_trigger_on_normal_answer():
 
 def test_detect_abstention_do_not_have_still_works():
     assert _detect_abstention("I do not have enough evidence to answer.") is True
+
+
+def test_resolve_evidence_mode_mixed_modality_routes_to_auto():
+    from types import SimpleNamespace
+    question = SimpleNamespace(
+        category="Mixed Modality",
+        expected_evidence_type="visual and text",
+    )
+    assert resolve_evidence_mode(question, requested="category") == "auto"
+
+
+def test_resolve_evidence_mode_chart_visual_routes_to_visual():
+    from types import SimpleNamespace
+    question = SimpleNamespace(
+        category="Chart / Visual",
+        expected_evidence_type="chart",
+    )
+    assert resolve_evidence_mode(question, requested="category") == "visual"
+
+
+def test_resolve_evidence_mode_mixed_beats_visual_in_expected():
+    from types import SimpleNamespace
+    question = SimpleNamespace(
+        category="Mixed Modality",
+        expected_evidence_type="visual figure and table",
+    )
+    assert resolve_evidence_mode(question, requested="category") == "auto"
