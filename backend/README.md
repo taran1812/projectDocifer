@@ -272,3 +272,15 @@ Detailed notes are in:
 ```text
 docs/phase7d-visual-evidence-retrieval.md
 ```
+
+Validated Phase 7D result:
+
+```text
+Worldbank2024.pdf
+page_render_count = 4
+figure_candidate_count = 0
+visual_record_count = 7
+retrieved visual candidates = 5
+```
+
+All returned visual candidate artifact paths pointed to existing rendered JPEG files. Phase 7D is merged on `master` at commit `5333eeb`.

@@ -66,3 +66,14 @@ Expected `/retrieve/visuals` behavior:
 - supports `visual_dense`, `visual_bm25`, and `visual_hybrid` retrieval modes.
 
 Phase 7D is complete when a real parsed PDF can be visually indexed and queried through the API with inspectable rendered artifacts in `datasets/processed/<hash>/<job>/visuals/pages/`.
+
+Current validated Phase 7D result:
+
+```text
+Visual suite: 22 passed
+Full backend suite: 78 passed, 1 xfailed
+Worldbank2024.pdf visual_record_count: 7
+Worldbank2024.pdf retrieved visual candidates: 5
+```
+
+This validates the retrieval substrate only. Chart reading and image-grounded answer generation remain deferred to the next phase.

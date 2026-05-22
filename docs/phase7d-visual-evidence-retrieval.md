@@ -141,3 +141,40 @@ Focused tests cover:
 - `/retrieve/visuals`.
 
 The Phase 7D gate is satisfied when these tests pass and a real parsed PDF can be visually indexed and queried with returned candidates pointing to existing JPEG page artifacts.
+
+## Completion Result
+
+Phase 7D is complete and merged into `master`.
+
+Final commit:
+
+```text
+5333eeb feat(visuals): complete Phase 7D visual retrieval
+```
+
+Validation results:
+
+```text
+Visual suite: 22 passed
+Full backend suite: 78 passed, 1 xfailed
+Compile check: passed
+```
+
+Real local validation used the World Bank canonical artifact:
+
+```text
+datasets/processed/8109582811fe/55e8b2a2-0406-4aed-8a9e-da81ef6ef0ff/canonical.json
+```
+
+Observed result:
+
+- `status = indexed`
+- `page_render_count = 4`
+- `figure_candidate_count = 0`
+- `visual_record_count = 7`
+- `collection_name = docifer_visual_evidence`
+- retrieved 5 visual candidates for `Which figure shows economic growth?`
+- returned candidates included `page_render` and `docling_picture`
+- all returned candidate artifacts existed as rendered JPEG files
+
+Phase 7D deliberately stops at visual evidence retrieval. Multimodal interpretation should be handled in the next phase.

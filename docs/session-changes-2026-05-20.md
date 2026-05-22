@@ -2675,3 +2675,36 @@ The real validation used a fake embedding provider to avoid external API calls w
 Phase 7D is complete as a retrieval-only visual evidence baseline.
 
 It intentionally does not interpret charts or figures yet. The next visual phase can add multimodal interpretation on top of these retrieved, inspectable visual candidates.
+
+## Phase 7D Commit And Merge
+
+Phase 7D was committed and merged into `master`.
+
+Latest `master` commit:
+
+```text
+5333eeb feat(visuals): complete Phase 7D visual retrieval
+```
+
+Phase 7D commit stack now on `master`:
+
+```text
+a72993c feat(config): add qdrant_visual_collection setting
+25e90f1 feat(visuals): add VisualEvidence schemas and embedding formatter
+0de1bc7 feat(visuals): add VisualEvidenceRecord and DocumentVisualIndexRun ORM models
+19e8d00 feat(visuals): add visual evidence Qdrant helpers to vector_store
+1b3167a feat(visuals): add PDF page rendering service using pypdfium2
+8c3ef2c feat(visuals): add visual evidence extraction from canonical artifacts
+8977bba feat(visuals): add VisualIndexingService with rendering, extraction, and Qdrant upsert
+715aad1 feat(visuals): add VisualRetriever with dense, BM25, and hybrid search
+f6b315c feat(visuals): add VisualIndexRequest/Response and VisualRetrieveRequest/Response schemas
+5333eeb feat(visuals): complete Phase 7D visual retrieval
+```
+
+Final tracked-file status after merge:
+
+```text
+master clean for tracked files
+```
+
+Untracked local files such as `.claude/`, `.codex/`, graphify outputs, and project notes were intentionally left untouched.
