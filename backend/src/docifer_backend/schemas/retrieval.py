@@ -129,3 +129,54 @@ class QueryResponse(BaseModel):
     unused_table_evidence: list[TableEvidenceResponse] = []
     citation_verification: CitationVerificationResponse | None = None
     debug: dict
+
+
+class VisualIndexRequest(BaseModel):
+    canonical_path: str = Field(..., description="Path to a canonical parsed document JSON artifact.")
+    force_reindex: bool = False
+
+
+class VisualIndexResponse(BaseModel):
+    document_id: str
+    content_hash: str
+    status: str
+    page_render_count: int
+    figure_candidate_count: int
+    visual_record_count: int
+    collection_name: str
+    reused_existing: bool
+
+
+class VisualRetrieveRequest(BaseModel):
+    question: str
+    content_hash: str | None = None
+    top_k: int = Field(default=5, ge=1, le=20)
+    retrieval_mode: str = Field(default="visual_hybrid", pattern="^(visual_dense|visual_bm25|visual_hybrid)$")
+    debug: bool = False
+
+
+class VisualCandidateResponse(BaseModel):
+    visual_id: str
+    score: float
+    dense_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
+    retrieval_mode: str
+    visual_type: str
+    source_kind: str
+    page_start: int | None
+    page_end: int | None
+    artifact_path: str | None = None
+    caption: str | None = None
+    section_heading: str | None = None
+    nearby_text: str | None = None
+    figure_label: str | None = None
+    visual_readiness: str
+    filename: str
+    source_path: str
+    source_artifact_path: str
+
+
+class VisualRetrieveResponse(BaseModel):
+    candidates: list[VisualCandidateResponse]
+    debug: dict = {}

@@ -554,3 +554,65 @@ def _index_visual_fixture(canonical_path, content_hash, source_path, session_fac
         initialize_schema=False,
     ).index_canonical_document(canonical_path)
     return qdrant_client
+
+
+# API Schema Tests
+from docifer_backend.schemas.retrieval import (
+    VisualCandidateResponse,
+    VisualIndexRequest,
+    VisualIndexResponse,
+    VisualRetrieveRequest,
+    VisualRetrieveResponse,
+)
+
+
+def test_visual_index_request_schema():
+    req = VisualIndexRequest(canonical_path="datasets/processed/abc/job/canonical.json")
+    assert req.force_reindex is False
+
+
+def test_visual_index_response_schema():
+    resp = VisualIndexResponse(
+        document_id="doc-1",
+        content_hash="c" * 64,
+        status="indexed",
+        page_render_count=10,
+        figure_candidate_count=3,
+        visual_record_count=13,
+        collection_name="docifer_visual_evidence",
+        reused_existing=False,
+    )
+    assert resp.visual_record_count == 13
+
+
+def test_visual_retrieve_request_defaults():
+    req = VisualRetrieveRequest(question="Which figure shows GDP growth?")
+    assert req.top_k == 5
+    assert req.retrieval_mode == "visual_hybrid"
+    assert req.content_hash is None
+    assert req.debug is False
+
+
+def test_visual_candidate_response_schema():
+    candidate = VisualCandidateResponse(
+        visual_id="abc:picture:0001",
+        score=0.85,
+        dense_score=0.80,
+        lexical_score=0.90,
+        hybrid_score=0.85,
+        retrieval_mode="visual_hybrid",
+        visual_type="docling_picture",
+        source_kind="docling_picture",
+        page_start=5,
+        page_end=5,
+        artifact_path="datasets/processed/abc/job/visuals/pages/page_0005.jpg",
+        caption="Figure 2: GDP growth",
+        section_heading="Economic Trends",
+        nearby_text="See figure below.",
+        figure_label="Figure 2",
+        visual_readiness="good",
+        filename="sample.pdf",
+        source_path="datasets/raw_pdfs/sample.pdf",
+        source_artifact_path="datasets/processed/abc/job/canonical.json",
+    )
+    assert candidate.visual_type == "docling_picture"
