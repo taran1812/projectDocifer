@@ -223,3 +223,14 @@ Compare:
 - category-level recall
 
 Use `GET /vector/collections` and `GET /vector/collections/{collection_name}/stats` to confirm point counts and payload index status before interpreting eval results.
+
+Validated Phase 8.5 results:
+
+| Run | Search config | Recall | Citation | False Abstention | True Abstention | P50 Latency | P95 Latency |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `phase7g1_full_40q` | baseline | 0.6625 | 0.975 | 0.0556 | 0.75 | 3327.75 | 12144.30 |
+| `phase8_5_ann_default` | ANN, `ef=64` | 0.6604 | 0.950 | 0.0556 | 0.75 | 3716.98 | 14899.56 |
+| `phase8_5_exact_search` | exact | 0.6554 | 0.950 | 0.0278 | 1.00 | 3470.52 | 14539.56 |
+| `phase8_5_ann_ef128` | ANN, `ef=128` | 0.6670 | 0.975 | 0.0556 | 1.00 | 3338.74 | 16271.60 |
+
+Recommendation: keep ANN `ef=64` as the default. Use ANN `ef=128` as a quality experiment when higher P95 latency is acceptable. Use exact search as a diagnostic, not as the default retrieval path.

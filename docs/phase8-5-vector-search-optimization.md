@@ -148,3 +148,54 @@ Compile check: passed
 ```
 
 Local in-memory Qdrant emits a warning that payload indexes have no effect locally. That is expected; payload indexes matter when using the Qdrant server.
+
+## Ablation Results
+
+Reference baseline:
+
+```json
+{
+  "run_name": "phase7g1_full_40q",
+  "average_expected_answer_token_recall": 0.6625,
+  "citation_presence_rate": 0.975,
+  "false_abstention_rate": 0.0556,
+  "true_abstention_accuracy": 0.75,
+  "latency_ms_p50": 3327.75,
+  "latency_ms_p95": 12144.30,
+  "failed": 0
+}
+```
+
+Phase 8.5 ablations:
+
+| Run | Search config | Recall | Citation | False Abstention | True Abstention | P50 Latency | P95 Latency | Failed |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `phase8_5_ann_default` | ANN, `ef=64` | 0.6604 | 0.950 | 0.0556 | 0.75 | 3716.98 | 14899.56 | 0 |
+| `phase8_5_exact_search` | exact | 0.6554 | 0.950 | 0.0278 | 1.00 | 3470.52 | 14539.56 | 0 |
+| `phase8_5_ann_ef128` | ANN, `ef=128` | 0.6670 | 0.975 | 0.0556 | 1.00 | 3338.74 | 16271.60 | 0 |
+
+## Verdict
+
+Phase 8.5 is valid:
+
+- exact vs ANN can be toggled,
+- search EF can be configured,
+- payload indexes are created during collection ensure/indexing,
+- collection stats and readiness checks work,
+- all three eval ablations completed with `failed = 0`.
+
+Recommended default:
+
+```text
+QDRANT_EXACT_SEARCH=false
+QDRANT_SEARCH_EF=64
+```
+
+Recommended quality experiment:
+
+```text
+QDRANT_EXACT_SEARCH=false
+QDRANT_SEARCH_EF=128
+```
+
+`ef=128` produced the best recall and citation-presence result, but its P95 latency was higher. Exact search is useful diagnostically and improved abstention behavior, but it did not improve recall.

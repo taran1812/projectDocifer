@@ -3471,3 +3471,35 @@ uv run --project backend python -m docifer_backend.evaluation.runner --run-name 
 ## Phase 8.5 Gate
 
 Phase 8.5 is code-valid when the backend suite passes. It becomes eval-valid after the three ablation runs are recorded and compared for recall and latency.
+
+## Phase 8.5 Ablation Results
+
+| Run | Search config | Recall | Citation | False Abstention | True Abstention | P50 Latency | P95 Latency | Failed |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `phase7g1_full_40q` | baseline | 0.6625 | 0.975 | 0.0556 | 0.75 | 3327.75 | 12144.30 | 0 |
+| `phase8_5_ann_default` | ANN, `ef=64` | 0.6604 | 0.950 | 0.0556 | 0.75 | 3716.98 | 14899.56 | 0 |
+| `phase8_5_exact_search` | exact | 0.6554 | 0.950 | 0.0278 | 1.00 | 3470.52 | 14539.56 | 0 |
+| `phase8_5_ann_ef128` | ANN, `ef=128` | 0.6670 | 0.975 | 0.0556 | 1.00 | 3338.74 | 16271.60 | 0 |
+
+## Phase 8.5 Verdict
+
+Phase 8.5 is valid:
+
+- All three ablations completed 40/40 questions with `failed = 0`.
+- ANN default remained close to the Phase 7G.1 baseline.
+- Exact search improved abstention behavior but did not improve recall.
+- ANN `ef=128` gave the best Phase 8.5 recall (`0.6670`) and preserved citation presence (`0.975`), but increased P95 latency.
+
+Recommended default remains:
+
+```text
+QDRANT_EXACT_SEARCH=false
+QDRANT_SEARCH_EF=64
+```
+
+Recommended diagnostic/quality experiment:
+
+```text
+QDRANT_EXACT_SEARCH=false
+QDRANT_SEARCH_EF=128
+```
