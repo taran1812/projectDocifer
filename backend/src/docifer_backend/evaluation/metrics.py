@@ -91,8 +91,10 @@ def score_answer(
 
 def _detect_abstention(answer: str) -> bool:
     lowered = answer.lower()
+    # normalise curly/smart apostrophes to straight before contraction replacement
+    normalised = lowered.replace("’", "'").replace("‘", "'")
     normalised = (
-        lowered
+        normalised
         .replace("don't", "do not")
         .replace("can't", "cannot")
         .replace("isn't", "is not")
