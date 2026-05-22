@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from docifer_backend.evaluation.dataset import load_golden_questions
-from docifer_backend.evaluation.metrics import score_answer
+from docifer_backend.evaluation.metrics import _detect_abstention, score_answer
 from docifer_backend.evaluation.runner import EvaluationRunner, resolve_evidence_mode
 
 
@@ -118,9 +118,6 @@ def test_resolve_evidence_mode_routes_visual_and_table_categories():
     assert resolve_evidence_mode(table_question) == "table"
     assert resolve_evidence_mode(text_question) == "text"
     assert resolve_evidence_mode(visual_question, requested="auto") == "auto"
-
-
-from docifer_backend.evaluation.metrics import _detect_abstention
 
 
 def test_detect_abstention_contraction_dont():
