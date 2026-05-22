@@ -193,3 +193,137 @@ def test_render_pdf_pages_creates_jpegs(tmp_path):
     assert (output_dir / "page_0001.jpg").exists()
     assert (output_dir / "page_0002.jpg").exists()
     assert (output_dir / "page_0003.jpg").exists()
+
+
+import json
+
+from docifer_backend.retrieval.visuals.extraction import extract_visual_evidence_from_canonical
+
+
+def write_visual_canonical_artifacts(tmp_path):
+    content_hash = "v" * 64
+    source_path = str(tmp_path / "sample.pdf")
+    docling_path = tmp_path / "docling.json"
+    markdown_path = tmp_path / "document.md"
+    canonical_path = tmp_path / "canonical.json"
+
+    docling_path.write_text(
+        json.dumps({
+            "texts": [
+                {
+                    "label": "section_header",
+                    "text": "Economic Trends",
+                    "prov": [{"page_no": 5}],
+                    "self_ref": "#/texts/0",
+                },
+                {
+                    "label": "caption",
+                    "text": "Figure 2: GDP growth trajectory 2010-2023",
+                    "prov": [{"page_no": 5}],
+                    "self_ref": "#/texts/1",
+                },
+            ],
+            "pictures": [
+                {
+                    "captions": [{"$ref": "#/texts/1"}],
+                    "prov": [{"page_no": 5, "bbox": {"l": 50, "t": 200, "r": 500, "b": 600}}],
+                    "self_ref": "#/pictures/0",
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        "\n".join([
+            "<!-- page 4 -->",
+            "This section covers trade policy analysis.",
+            "<!-- page 5 -->",
+            "Economic Trends section begins here.",
+            "Figure 2 illustrates the GDP growth trajectory across major economies.",
+        ]),
+        encoding="utf-8",
+    )
+    canonical_path.write_text(
+        json.dumps({
+            "artifacts": {
+                "docling_json": str(docling_path),
+                "markdown": str(markdown_path),
+                "directory": str(tmp_path),
+            },
+            "document": {
+                "content_hash": content_hash,
+                "filename": "sample.pdf",
+                "source_path": source_path,
+            },
+            "parser": {"name": "docling"},
+            "parse": {"page_count": 5, "figure_count": 1, "table_count": 0, "errors": []},
+        }),
+        encoding="utf-8",
+    )
+    return canonical_path, content_hash, source_path
+
+
+def test_docling_picture_extraction(tmp_path):
+    canonical_path, content_hash, _ = write_visual_canonical_artifacts(tmp_path)
+    evidence = extract_visual_evidence_from_canonical(canonical_path)
+
+    pictures = [e for e in evidence if e.source_kind == "docling_picture"]
+    assert len(pictures) == 1
+    assert pictures[0].caption == "Figure 2: GDP growth trajectory 2010-2023"
+    assert pictures[0].page_start == 5
+    assert pictures[0].visual_type == "docling_picture"
+    assert pictures[0].section_heading == "Economic Trends"
+    assert pictures[0].visual_readiness == "good"
+    assert pictures[0].visual_id.endswith(":picture:0000")
+
+
+def test_page_render_records_created_for_all_pages(tmp_path):
+    canonical_path, content_hash, _ = write_visual_canonical_artifacts(tmp_path)
+    evidence = extract_visual_evidence_from_canonical(canonical_path)
+
+    pages = [e for e in evidence if e.source_kind == "page_render"]
+    assert len(pages) == 5
+    page_numbers = sorted(e.page_start for e in pages)
+    assert page_numbers == [1, 2, 3, 4, 5]
+    page5 = next(e for e in pages if e.page_start == 5)
+    assert "Economic Trends" in (page5.nearby_text or "")
+
+
+def test_figure_candidate_fallback_when_no_docling_pictures(tmp_path):
+    content_hash = "f" * 64
+    docling_path = tmp_path / "docling.json"
+    markdown_path = tmp_path / "document.md"
+    canonical_path = tmp_path / "canonical.json"
+
+    docling_path.write_text(json.dumps({"texts": [], "pictures": []}), encoding="utf-8")
+    markdown_path.write_text(
+        "\n".join([
+            "<!-- page 3 -->",
+            "Figure 1: Poverty rate trends show a declining trajectory.",
+            "<!-- page 7 -->",
+            "Chart 2 shows the GDP comparison across countries.",
+        ]),
+        encoding="utf-8",
+    )
+    canonical_path.write_text(
+        json.dumps({
+            "artifacts": {
+                "docling_json": str(docling_path),
+                "markdown": str(markdown_path),
+                "directory": str(tmp_path),
+            },
+            "document": {
+                "content_hash": content_hash,
+                "filename": "fallback.pdf",
+                "source_path": str(tmp_path / "fallback.pdf"),
+            },
+            "parser": {"name": "docling"},
+            "parse": {"page_count": 10, "figure_count": 2, "table_count": 0, "errors": []},
+        }),
+        encoding="utf-8",
+    )
+
+    evidence = extract_visual_evidence_from_canonical(canonical_path)
+    candidates = [e for e in evidence if e.source_kind == "text_reference"]
+    assert len(candidates) >= 2
+    assert any("Figure 1" in (e.figure_label or "") or "Figure 1" in (e.nearby_text or "") for e in candidates)
