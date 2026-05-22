@@ -55,6 +55,22 @@ def build_summary(results: list[Any]) -> dict[str, Any]:
                 ],
                 lambda result: result.metrics.get("abstention_correct"),
             ),
+            "true_abstention_accuracy": _rate(
+                [
+                    result
+                    for result in evaluated
+                    if result.should_abstain and result.metrics.get("abstention_correct") is not None
+                ],
+                lambda result: result.metrics.get("abstention_correct"),
+            ),
+            "false_abstention_rate": _rate(
+                [
+                    result
+                    for result in evaluated
+                    if not result.should_abstain
+                ],
+                lambda result: result.metrics.get("abstention_detected"),
+            ),
             "latency_ms_p50": round(median(latencies), 2) if latencies else None,
             "latency_ms_p95": _percentile(latencies, 95),
         },

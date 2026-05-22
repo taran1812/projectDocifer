@@ -173,6 +173,14 @@ class TextQueryService:
                 content_hash=content_hash,
                 retrieval_mode="table_hybrid",
             )
+            if not table_results and evidence_mode == "table":
+                retry_table_top_k = min(table_top_k * 2, 8)
+                table_results = self.table_retriever.search(
+                    query=question,
+                    top_k=retry_table_top_k,
+                    content_hash=content_hash,
+                    retrieval_mode="table_hybrid",
+                )
             table_retrieval_latency_ms = int((time.perf_counter() - start) * 1000)
             if table_results:
                 table_reasoning = reason_over_table_evidence(
