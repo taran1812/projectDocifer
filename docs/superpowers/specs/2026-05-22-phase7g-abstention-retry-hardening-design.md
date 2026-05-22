@@ -160,7 +160,15 @@ Retry path:
 3. Re-call `generate_grounded_answer`
 4. Use retry answer regardless (even if it also abstains — one retry only)
 
-Add `abstention_retry_triggered` boolean to `debug` dict for observability.
+Add the following fields to `debug` dict for observability:
+
+```python
+"abstention_retry_triggered": bool,
+"initial_top_k": int,          # original top_k value
+"retry_top_k": int | None,     # top_k used in retry (None if no retry)
+"initial_answer_was_abstention": bool,
+"retry_answer_was_abstention": bool | None,  # None if no retry
+```
 
 **Do not** add retry for table or visual evidence modes — the false abstentions are text-retrieval problems.
 
@@ -193,7 +201,7 @@ def _with_retry(fn, max_retries=2):
         except openai.RateLimitError:
             if attempt == max_retries:
                 raise
-            sleep = (2 ** attempt) + random.uniform(-0.5, 0.5)
+            sleep = (2 ** (attempt + 1)) + random.uniform(-0.5, 0.5)  # 2s, then 4s
             time.sleep(max(0, sleep))
 ```
 
