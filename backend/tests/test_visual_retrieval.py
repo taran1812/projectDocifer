@@ -3,6 +3,13 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from docifer_backend.config.settings import Settings
+from docifer_backend.providers.base import (
+    CitationGroundingVerdict,
+    GroundingEvidence,
+    VisualEvidenceInput,
+    VisualInterpretationResult,
+    VisualObservation,
+)
 from docifer_backend.retrieval.visuals.models import DocumentVisualIndexRun, VisualEvidenceRecord
 from docifer_backend.storage.database import Base
 
@@ -354,14 +361,86 @@ from docifer_backend.retrieval.visuals.models import DocumentVisualIndexRun, Vis
 
 
 class FakeVisualAIProvider:
+    def __init__(self, *, abstain: bool = False) -> None:
+        self.abstain = abstain
+
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         return [[float(len(t) % 10) / 10.0, 0.5, 0.3, 1.0] for t in texts]
 
     def generate_grounded_answer(self, *, question: str, evidence: list) -> str:
         return "No interpretation in Phase 7D."
 
-    def verify_citation_grounding(self, *, question: str, answer: str, evidence: list):
-        return None
+    def verify_citation_grounding(
+        self,
+        *,
+        question: str,
+        answer: str,
+        evidence: list[GroundingEvidence],
+    ) -> CitationGroundingVerdict:
+        supported = [item.citation_id for item in evidence if f"[{item.citation_id}]" in answer]
+        return CitationGroundingVerdict(
+            verdict="supported" if supported else "unsupported",
+            supported_citation_ids=supported,
+            weak_citation_ids=[],
+            unsupported_claims=[] if supported else [answer],
+            reasoning="The cited visual observation supports the answer." if supported else "No supported citations.",
+            revised_answer=None,
+        )
+
+    def interpret_visual_evidence(
+        self,
+        *,
+        question: str,
+        visual_evidence: list[VisualEvidenceInput],
+    ) -> VisualInterpretationResult:
+        first = visual_evidence[0]
+        if self.abstain:
+            return VisualInterpretationResult(
+                status="abstained",
+                answer=f"I cannot determine this from the retrieved visual evidence because the labels are unreadable. [{first.citation_id}]",
+                observations=[
+                    VisualObservation(
+                        citation_id=first.citation_id,
+                        visual_id=first.visual_id,
+                        observation_type="abstention",
+                        question_answered=False,
+                        extracted_facts=[],
+                        visible_entities=[],
+                        numeric_values=[],
+                        confidence=0.0,
+                        limitations=["labels are unreadable"],
+                        abstain_reason="labels are unreadable",
+                        supported=False,
+                        reasoning="The image candidate is present but not clear enough.",
+                    )
+                ],
+                used_citation_ids=[first.citation_id],
+                abstain_reason="labels are unreadable",
+                reasoning="The image candidate is present but not clear enough.",
+            )
+        return VisualInterpretationResult(
+            status="supported",
+            answer=f"The visual shows the main findings trend. [{first.citation_id}]",
+            observations=[
+                VisualObservation(
+                    citation_id=first.citation_id,
+                    visual_id=first.visual_id,
+                    observation_type="chart_summary",
+                    question_answered=True,
+                    extracted_facts=["The visual shows the main findings trend."],
+                    visible_entities=["main findings"],
+                    numeric_values=[],
+                    confidence=0.82,
+                    limitations=[],
+                    abstain_reason="",
+                    supported=True,
+                    reasoning="The retrieved visual directly addresses the question.",
+                )
+            ],
+            used_citation_ids=[first.citation_id],
+            abstain_reason="",
+            reasoning="The retrieved visual directly addresses the question.",
+        )
 
 
 def write_visual_indexing_artifacts(tmp_path: Path) -> tuple[Path, str, str]:
@@ -498,6 +577,7 @@ def test_visual_indexing_is_idempotent(tmp_path, session_factory):
 
 
 from docifer_backend.retrieval.visuals.retriever import VisualRetriever
+from docifer_backend.retrieval.query import TextQueryService, detect_visual_intent
 
 
 def test_visual_retriever_hybrid_returns_picture_record(tmp_path, session_factory):
@@ -544,6 +624,96 @@ def test_visual_retriever_bm25_scores_figure_label_match(tmp_path, session_facto
     assert results[0].dense_score is None
 
 
+def test_visual_intent_detection_chart_terms():
+    detected = detect_visual_intent("Which chart shows the main findings?")
+    plain_text = detect_visual_intent("What growth strategy should countries use?")
+
+    assert detected["detected"] is True
+    assert "chart" in detected["matches"]
+    assert plain_text["detected"] is False
+
+
+def test_query_visual_mode_returns_visual_citation_and_observation(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    qdrant_client = _index_visual_fixture(canonical_path, content_hash, source_path, session_factory)
+    provider = FakeVisualAIProvider()
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="unused_text_collection",
+        visual_collection_name="test_visual_evidence",
+    ).query(
+        question="Which figure shows the main findings?",
+        content_hash=content_hash,
+        evidence_mode="visual",
+        visual_top_k=3,
+        verify_citations=True,
+    )
+
+    assert "[V1]" in outcome.answer
+    assert outcome.visual_citations
+    assert outcome.visual_citations[0].citation_id == "V1"
+    assert outcome.visual_evidence
+    assert outcome.unused_visual_evidence == outcome.visual_evidence[1:]
+    assert outcome.visual_interpretation is not None
+    assert outcome.visual_interpretation.status == "supported"
+    assert outcome.visual_interpretation.observations[0].supported is True
+    assert outcome.citation_verification is not None
+    assert outcome.citation_verification.supported_citation_ids == ["V1"]
+    assert outcome.debug["visual_retrieval_requested"] is True
+    assert outcome.debug["answer_visual_citation_count"] == 1
+
+
+def test_query_auto_mode_uses_visual_intent(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    qdrant_client = _index_visual_fixture(canonical_path, content_hash, source_path, session_factory)
+
+    outcome = TextQueryService(
+        ai_provider=FakeVisualAIProvider(),
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="unused_text_collection",
+        visual_collection_name="test_visual_evidence",
+    ).query(
+        question="Which chart shows the main findings?",
+        content_hash=content_hash,
+        retrieval_mode="bm25",
+        evidence_mode="auto",
+        visual_top_k=2,
+    )
+
+    assert outcome.debug["visual_intent_detected"] is True
+    assert outcome.debug["visual_retrieval_requested"] is True
+    assert outcome.visual_citations
+
+
+def test_query_visual_mode_abstains_when_visual_is_unclear(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    qdrant_client = _index_visual_fixture(canonical_path, content_hash, source_path, session_factory)
+
+    outcome = TextQueryService(
+        ai_provider=FakeVisualAIProvider(abstain=True),
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="unused_text_collection",
+        visual_collection_name="test_visual_evidence",
+    ).query(
+        question="What exact value is shown in the chart?",
+        content_hash=content_hash,
+        evidence_mode="visual",
+        visual_top_k=2,
+    )
+
+    assert "cannot determine" in outcome.answer
+    assert "[V1]" in outcome.answer
+    assert outcome.visual_citations[0].citation_id == "V1"
+    assert outcome.visual_interpretation is not None
+    assert outcome.visual_interpretation.status == "abstained"
+    assert outcome.visual_interpretation.observations[0].question_answered is False
+
+
 def _index_visual_fixture(canonical_path, content_hash, source_path, session_factory) -> QdrantClient:
     with session_factory() as session:
         session.add(Document(
@@ -568,8 +738,11 @@ def _index_visual_fixture(canonical_path, content_hash, source_path, session_fac
 # API Schema Tests
 from docifer_backend.schemas.retrieval import (
     VisualCandidateResponse,
+    VisualCitationResponse,
+    VisualEvidenceResponse,
     VisualIndexRequest,
     VisualIndexResponse,
+    VisualObservationResponse,
     VisualRetrieveRequest,
     VisualRetrieveResponse,
 )
@@ -627,6 +800,67 @@ def test_visual_candidate_response_schema():
         source_artifact_path="datasets/processed/abc/job/canonical.json",
     )
     assert candidate.visual_type == "docling_picture"
+
+
+def test_visual_query_response_schemas():
+    citation = VisualCitationResponse(
+        citation_id="V1",
+        evidence_type="visual",
+        visual_id="abc:picture:0001",
+        source_path="datasets/raw_pdfs/sample.pdf",
+        source_artifact_path="datasets/processed/abc/job/canonical.json",
+        artifact_path="datasets/processed/abc/job/visuals/pages/page_0005.jpg",
+        page_start=5,
+        page_end=5,
+        visual_type="docling_picture",
+        visual_readiness="good",
+        score=0.91,
+        dense_score=0.80,
+        lexical_score=0.95,
+        hybrid_score=0.91,
+    )
+    evidence = VisualEvidenceResponse(
+        citation_id="V1",
+        visual_id="abc:picture:0001",
+        document_id="doc-1",
+        content_hash="c" * 64,
+        score=0.91,
+        dense_score=0.80,
+        lexical_score=0.95,
+        hybrid_score=0.91,
+        retrieval_mode="visual_hybrid",
+        visual_type="docling_picture",
+        source_kind="docling_picture",
+        page_start=5,
+        page_end=5,
+        artifact_path="datasets/processed/abc/job/visuals/pages/page_0005.jpg",
+        caption="Figure 2: GDP growth",
+        section_heading="Economic Trends",
+        nearby_text="See figure below.",
+        figure_label="Figure 2",
+        visual_readiness="good",
+        filename="sample.pdf",
+        source_path="datasets/raw_pdfs/sample.pdf",
+        source_artifact_path="datasets/processed/abc/job/canonical.json",
+    )
+    observation = VisualObservationResponse(
+        citation_id="V1",
+        visual_id="abc:picture:0001",
+        observation_type="chart_summary",
+        question_answered=True,
+        extracted_facts=["GDP growth rises."],
+        visible_entities=["GDP"],
+        numeric_values=[],
+        confidence=0.8,
+        limitations=[],
+        abstain_reason="",
+        supported=True,
+        reasoning="The visible chart supports the observation.",
+    )
+
+    assert citation.evidence_type == "visual"
+    assert evidence.citation_id == "V1"
+    assert observation.supported is True
 
 
 # API Endpoint Tests

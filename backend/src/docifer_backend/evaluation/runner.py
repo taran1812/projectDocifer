@@ -34,6 +34,8 @@ class EvaluationResult:
     answer: str | None = None
     citation_ids: list[str] = field(default_factory=list)
     evidence_chunk_ids: list[str] = field(default_factory=list)
+    table_ids: list[str] = field(default_factory=list)
+    visual_ids: list[str] = field(default_factory=list)
     evidence_texts: list[str] = field(default_factory=list)
     retrieval_scores: list[float] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -42,6 +44,7 @@ class EvaluationResult:
     error_message: str | None = None
     content_hash: str | None = None
     retrieval_mode: str = "dense"
+    evidence_mode: str = "text"
     verifier_verdict: str | None = None
 
 
@@ -77,6 +80,7 @@ class EvaluationRunner:
         limit: int | None = None,
         top_k: int = 4,
         retrieval_mode: str = "dense",
+        evidence_mode: str = "category",
         verify_citations: bool = False,
     ) -> EvaluationRunOutcome:
         resolved_run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -111,6 +115,7 @@ class EvaluationRunner:
                     doc_ref,
                     top_k=top_k,
                     retrieval_mode=retrieval_mode,
+                    evidence_mode=evidence_mode,
                     verify_citations=verify_citations,
                 )
             )
@@ -140,9 +145,11 @@ class EvaluationRunner:
         *,
         top_k: int,
         retrieval_mode: str,
+        evidence_mode: str,
         verify_citations: bool,
     ) -> EvaluationResult:
         query_service = self._get_query_service()
+        resolved_evidence_mode = resolve_evidence_mode(question, requested=evidence_mode)
         trace_inputs = {
             "qa_id": question.qa_id,
             "doc_id": question.doc_id,
@@ -151,6 +158,7 @@ class EvaluationRunner:
             "content_hash": doc_ref.content_hash,
             "top_k": top_k,
             "retrieval_mode": retrieval_mode,
+            "evidence_mode": resolved_evidence_mode,
             "verify_citations": verify_citations,
         }
         started = time.perf_counter()
@@ -171,15 +179,46 @@ class EvaluationRunner:
                     content_hash=doc_ref.content_hash,
                     top_k=top_k,
                     retrieval_mode=retrieval_mode,
+                    evidence_mode=resolved_evidence_mode,
+                    table_top_k=top_k,
+                    visual_top_k=min(max(top_k, 1), 5),
                     verify_citations=verify_citations,
                 )
                 latency_ms = round((time.perf_counter() - started) * 1000, 2)
-                retrieval_scores = [chunk.score for chunk in outcome.evidence]
+                table_evidence = list(getattr(outcome, "table_evidence", []) or [])
+                visual_evidence = list(getattr(outcome, "visual_evidence", []) or [])
+                visual_observations = list(
+                    getattr(getattr(outcome, "visual_interpretation", None), "observations", []) or []
+                )
+                retrieval_scores = (
+                    [chunk.score for chunk in outcome.evidence]
+                    + [table.score for table in table_evidence]
+                    + [visual.score for visual in visual_evidence]
+                )
+                citation_ids = (
+                    [citation.citation_id for citation in outcome.citations]
+                    + [
+                        citation.citation_id
+                        for citation in getattr(outcome, "table_citations", [])
+                    ]
+                    + [
+                        citation.citation_id
+                        for citation in getattr(outcome, "visual_citations", [])
+                    ]
+                )
+                evidence_texts = (
+                    [chunk.text for chunk in outcome.evidence]
+                    + [table.raw_text for table in table_evidence]
+                    + [
+                        " ".join(observation.extracted_facts + observation.limitations)
+                        for observation in visual_observations
+                    ]
+                )
                 metrics = score_answer(
                     question=question,
                     answer=outcome.answer,
-                    citation_count=len(outcome.citations),
-                    retrieved_evidence_count=len(outcome.evidence),
+                    citation_count=len(citation_ids),
+                    retrieved_evidence_count=len(retrieval_scores),
                     retrieval_scores=retrieval_scores,
                 )
                 result = EvaluationResult(
@@ -191,14 +230,17 @@ class EvaluationRunner:
                     should_abstain=question.should_abstain,
                     status="evaluated",
                     answer=outcome.answer,
-                    citation_ids=[citation.citation_id for citation in outcome.citations],
+                    citation_ids=citation_ids,
                     evidence_chunk_ids=[chunk.chunk_id for chunk in outcome.evidence],
-                    evidence_texts=[chunk.text for chunk in outcome.evidence],
+                    table_ids=[table.table_id for table in table_evidence],
+                    visual_ids=[visual.visual_id for visual in visual_evidence],
+                    evidence_texts=evidence_texts,
                     retrieval_scores=retrieval_scores,
                     metrics=asdict(metrics),
                     latency_ms=latency_ms,
                     content_hash=doc_ref.content_hash,
                     retrieval_mode=retrieval_mode,
+                    evidence_mode=resolved_evidence_mode,
                     verifier_verdict=(
                         outcome.citation_verification.verdict
                         if outcome.citation_verification is not None
@@ -212,6 +254,7 @@ class EvaluationRunner:
                         "metrics": result.metrics,
                         "latency_ms": latency_ms,
                         "retrieval_mode": retrieval_mode,
+                        "evidence_mode": resolved_evidence_mode,
                         "verifier_verdict": result.verifier_verdict,
                     }
                 )
@@ -228,6 +271,7 @@ class EvaluationRunner:
                 error_message=str(exc),
                 latency_ms=round((time.perf_counter() - started) * 1000, 2),
                 content_hash=doc_ref.content_hash,
+                evidence_mode=resolved_evidence_mode,
             )
 
     def _get_query_service(self) -> Any:
@@ -279,6 +323,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--top-k", type=int, default=4)
     parser.add_argument("--retrieval-mode", default="dense", choices=["dense", "bm25", "hybrid"])
+    parser.add_argument("--evidence-mode", default="category", choices=["category", "text", "table", "visual", "auto"])
     parser.add_argument("--verify-citations", action="store_true")
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args(argv)
@@ -294,10 +339,25 @@ def main(argv: list[str] | None = None) -> int:
         limit=args.limit,
         top_k=args.top_k,
         retrieval_mode=args.retrieval_mode,
+        evidence_mode=args.evidence_mode,
         verify_citations=args.verify_citations,
     )
     print(json.dumps(asdict(outcome), ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def resolve_evidence_mode(question: GoldenQuestion, *, requested: str = "category") -> str:
+    if requested != "category":
+        return requested
+    category = question.category.lower()
+    expected = (question.expected_evidence_type or "").lower()
+    if any(term in category or term in expected for term in ["chart", "visual", "figure", "image", "graph"]):
+        return "visual"
+    if "table" in category or "table" in expected:
+        return "table"
+    if "mixed" in category:
+        return "auto"
+    return "text"
 
 
 if __name__ == "__main__":

@@ -284,3 +284,47 @@ retrieved visual candidates = 5
 ```
 
 All returned visual candidate artifact paths pointed to existing rendered JPEG files. Phase 7D is merged on `master` at commit `5333eeb`.
+
+## Phase 7E structured multimodal interpretation
+
+Phase 7E adds narrow, schema-driven interpretation of retrieved visual evidence. It uses Phase 7D candidates as input, sends only selected rendered artifacts to the vision provider, and returns structured observations plus visual citations.
+
+Configuration:
+
+```text
+OPENAI_VISION_MODEL=gpt-4o-mini
+```
+
+`/query` now supports:
+
+```text
+evidence_mode="visual"
+visual_top_k=3
+```
+
+Example:
+
+```json
+{
+  "question": "Which chart shows the main findings?",
+  "content_hash": "8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8",
+  "evidence_mode": "visual",
+  "visual_top_k": 3,
+  "verify_citations": true
+}
+```
+
+Visual answers cite retrieved artifacts with `[V1]`, `[V2]`, etc. Query responses include:
+
+- `visual_citations`
+- `visual_evidence`
+- `visual_observations`
+- `unused_visual_evidence`
+
+The visual provider returns structured observations with extracted facts, visible entities, numeric values, confidence, limitations, and abstention reasons. If a chart is unclear or unreadable, the answer safely abstains instead of guessing.
+
+Detailed notes are in:
+
+```text
+docs/phase7e-structured-multimodal-interpretation.md
+```

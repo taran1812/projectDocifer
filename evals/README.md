@@ -77,3 +77,35 @@ Worldbank2024.pdf retrieved visual candidates: 5
 ```
 
 This validates the retrieval substrate only. Chart reading and image-grounded answer generation remain deferred to the next phase.
+
+## Phase 7E visual interpretation checks
+
+Phase 7E routes chart/visual golden questions through structured visual interpretation.
+
+The evaluation runner now supports:
+
+```text
+--evidence-mode category|text|table|visual|auto
+```
+
+Default `category` routing sends:
+
+- chart/visual/figure/image/graph questions to `visual`,
+- table questions to `table`,
+- mixed questions to `auto`,
+- text questions to `text`.
+
+Visual metrics use combined citation and retrieval counts across text, table, and visual evidence. Visual contexts exported for later scoring come from structured visual observations, not free-form image narration.
+
+Suggested Phase 7E visual run:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase7e_visual_questions --evidence-mode visual --retrieval-mode hybrid --verify-citations
+```
+
+Automated validation completed during implementation:
+
+```text
+Visual + eval focused tests: 28 passed
+Full backend suite: 86 passed, 1 xfailed
+```

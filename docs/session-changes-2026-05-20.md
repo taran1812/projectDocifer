@@ -2708,3 +2708,181 @@ master clean for tracked files
 ```
 
 Untracked local files such as `.claude/`, `.codex/`, graphify outputs, and project notes were intentionally left untouched.
+
+---
+
+# Phase 7E Changes - Structured Multimodal Interpretation
+
+Phase 7E adds schema-driven interpretation of retrieved visual evidence. It builds on Phase 7D visual retrieval and stays intentionally narrow: retrieved visual candidates are interpreted into structured observations, cited with `[V1]` style citations, and safely abstained when unclear.
+
+## Phase 7E Configuration
+
+Updated:
+
+```text
+backend/src/docifer_backend/config/settings.py
+.env.example
+```
+
+Added:
+
+```text
+OPENAI_VISION_MODEL=gpt-4o-mini
+```
+
+The setting is configurable so a different vision-capable OpenAI model can be used later.
+
+## Phase 7E Provider Layer
+
+Updated:
+
+```text
+backend/src/docifer_backend/providers/base.py
+backend/src/docifer_backend/providers/openai_provider.py
+```
+
+Added provider-facing dataclasses:
+
+- `VisualEvidenceInput`
+- `VisualObservation`
+- `VisualInterpretationResult`
+
+Added provider method:
+
+```text
+interpret_visual_evidence(question, visual_evidence)
+```
+
+The OpenAI implementation uses the Responses API with:
+
+- `input_image` content items for rendered visual artifacts,
+- base64 data URLs for local JPEG artifacts,
+- strict JSON-schema structured output,
+- safe abstention if no readable artifact is available or if output parsing fails.
+
+## Phase 7E Visual Interpretation
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/visuals/interpretation.py
+```
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/visuals/schemas.py
+```
+
+Implemented:
+
+- visual evidence inputs from Phase 7D candidates,
+- structured observation formatting,
+- visual grounding evidence conversion,
+- `VisualCitation`,
+- visual interpretation debug serialization.
+
+## Phase 7E Query Integration
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/query.py
+backend/src/docifer_backend/api/retrieval.py
+backend/src/docifer_backend/schemas/retrieval.py
+```
+
+Added:
+
+- `evidence_mode="visual"`,
+- `visual_top_k`,
+- visual intent detection for auto mode,
+- visual retrieval through `VisualRetriever`,
+- provider-backed visual interpretation,
+- `[V1]`, `[V2]` citation extraction,
+- `visual_citations`,
+- `visual_evidence`,
+- `visual_observations`,
+- `unused_visual_evidence`,
+- visual debug fields.
+
+Safe abstention is supported for unclear visuals:
+
+```text
+I cannot determine this from the retrieved visual evidence because the labels are unreadable. [V1]
+```
+
+## Phase 7E Evaluation
+
+Updated:
+
+```text
+backend/src/docifer_backend/evaluation/runner.py
+evals/README.md
+```
+
+Added:
+
+- `--evidence-mode category|text|table|visual|auto`,
+- default category routing for golden questions,
+- chart/visual/figure/image/graph questions route to `visual`,
+- table questions route to `table`,
+- mixed questions route to `auto`,
+- text questions route to `text`,
+- visual IDs and table IDs in evaluation result records,
+- combined citation and retrieval score accounting across modalities.
+
+## Phase 7E Tests
+
+Added:
+
+```text
+backend/tests/test_openai_provider.py
+```
+
+Updated:
+
+```text
+backend/tests/test_visual_retrieval.py
+backend/tests/test_evaluation.py
+```
+
+Coverage includes:
+
+- OpenAI vision structured output parsing without network calls,
+- base64 image payload creation for `input_image`,
+- safe provider abstention when an artifact is missing,
+- visual intent detection,
+- `/query` visual mode returns `[V1]` citations and structured observations,
+- auto mode triggers visual retrieval for visual intent,
+- visual-mode abstention,
+- visual response schemas,
+- evaluation category routing for visual/table/text questions.
+
+## Phase 7E Validation
+
+Focused validation:
+
+```text
+28 passed
+```
+
+Full backend suite:
+
+```text
+86 passed, 1 xfailed
+```
+
+Compile check:
+
+```text
+python -m compileall backend/src/docifer_backend backend/tests
+```
+
+Live OpenAI vision calls were not run during this implementation pass. The provider path is covered by no-network tests and uses the official Responses API image-input and structured-output shapes.
+
+## Phase 7E Gate Status
+
+Phase 7E is implemented as a structured visual interpretation baseline.
+
+It is ready for live validation with an OpenAI vision-capable model and indexed visual evidence. It deliberately avoids arbitrary image reasoning and chart analytics beyond the structured observation schema.

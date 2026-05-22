@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from docifer_backend.evaluation.dataset import load_golden_questions
 from docifer_backend.evaluation.metrics import score_answer
-from docifer_backend.evaluation.runner import EvaluationRunner
+from docifer_backend.evaluation.runner import EvaluationRunner, resolve_evidence_mode
 
 
 class FakeRegistry:
@@ -34,6 +34,9 @@ class FakeQueryService:
         content_hash: str,
         top_k: int,
         retrieval_mode: str = "dense",
+        evidence_mode: str = "text",
+        table_top_k: int = 4,
+        visual_top_k: int = 3,
         verify_citations: bool = False,
     ):
         return SimpleNamespace(
@@ -53,6 +56,11 @@ class FakeQueryService:
                 )
             ],
             citation_verification=None,
+            table_citations=[],
+            visual_citations=[],
+            table_evidence=[],
+            visual_evidence=[],
+            visual_interpretation=None,
         )
 
 
@@ -98,3 +106,15 @@ def test_evaluation_runner_writes_results_and_skips_unindexed_docs(tmp_path):
     assert (tmp_path / "test-run" / "summary.json").exists()
     assert (tmp_path / "test-run" / "report.md").exists()
     assert (tmp_path / "test-run" / "ragas_input.jsonl").exists()
+
+
+def test_resolve_evidence_mode_routes_visual_and_table_categories():
+    questions = load_golden_questions("docifer_phase1_corpus_and_golden_eval_v1.xlsx")
+    visual_question = next(q for q in questions if "chart" in q.category.lower() or "visual" in q.category.lower())
+    table_question = next(q for q in questions if "table" in q.category.lower())
+    text_question = next(q for q in questions if q.category.lower().startswith("text"))
+
+    assert resolve_evidence_mode(visual_question) == "visual"
+    assert resolve_evidence_mode(table_question) == "table"
+    assert resolve_evidence_mode(text_question) == "text"
+    assert resolve_evidence_mode(visual_question, requested="auto") == "auto"

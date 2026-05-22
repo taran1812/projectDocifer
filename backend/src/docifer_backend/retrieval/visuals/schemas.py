@@ -65,6 +65,24 @@ class VisualQueryResult:
     source_artifact_path: str
 
 
+@dataclass(frozen=True)
+class VisualCitation:
+    citation_id: str
+    evidence_type: str
+    visual_id: str
+    source_path: str
+    source_artifact_path: str
+    artifact_path: str | None
+    page_start: int | None
+    page_end: int | None
+    visual_type: str
+    visual_readiness: str
+    score: float
+    dense_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
+
+
 def format_visual_evidence_for_embedding(visual: VisualEvidence | VisualQueryResult) -> str:
     page = _format_page_range(visual.page_start, visual.page_end)
     lines = [
@@ -91,3 +109,22 @@ def _format_page_range(page_start: int | None, page_end: int | None) -> str:
     if page_start:
         return str(page_start)
     return "unknown"
+
+
+def format_visual_query_result_for_interpretation(visual: VisualQueryResult) -> str:
+    page = _format_page_range(visual.page_start, visual.page_end)
+    lines = [
+        f"Document: {visual.filename}",
+        f"Page: {page}",
+        f"Visual ID: {visual.visual_id}",
+        f"Visual Type: {visual.visual_type}",
+        f"Readiness: {visual.visual_readiness}",
+        f"Section: {visual.section_heading or ''}",
+    ]
+    if visual.figure_label:
+        lines.append(f"Figure Label: {visual.figure_label}")
+    if visual.caption:
+        lines.append(f"Caption: {visual.caption}")
+    if visual.nearby_text:
+        lines.append(f"Nearby Text: {visual.nearby_text[:800]}")
+    return "\n".join(lines).strip()

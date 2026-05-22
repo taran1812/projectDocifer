@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_answer_model: str = "gpt-5.4-mini"
+    openai_vision_model: str = "gpt-4o-mini"
     openai_embedding_batch_size: int = 64
 
     google_cloud_project: str | None = None

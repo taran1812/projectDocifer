@@ -9,7 +9,12 @@ from qdrant_client import QdrantClient
 from docifer_backend.config.settings import get_settings
 from sqlalchemy.orm import Session, sessionmaker
 
-from docifer_backend.providers.base import AIProvider, CitationGroundingVerdict, GroundingEvidence
+from docifer_backend.providers.base import (
+    AIProvider,
+    CitationGroundingVerdict,
+    GroundingEvidence,
+    VisualInterpretationResult,
+)
 from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import BM25Retriever
 from docifer_backend.retrieval.hybrid import merge_hybrid_results
@@ -22,6 +27,16 @@ from docifer_backend.retrieval.tables.schemas import (
     format_table_evidence_for_embedding,
 )
 from docifer_backend.retrieval.vector_store import RetrievedChunk, search_text_chunks
+from docifer_backend.retrieval.visuals.interpretation import (
+    build_visual_evidence_inputs,
+    visual_interpretation_debug,
+    visual_observations_to_grounding_evidence,
+)
+from docifer_backend.retrieval.visuals.retriever import VisualRetriever
+from docifer_backend.retrieval.visuals.schemas import (
+    VisualCitation,
+    VisualQueryResult,
+)
 from docifer_backend.storage.database import get_session_factory
 from docifer_backend.storage.qdrant import get_qdrant_client
 
@@ -45,10 +60,14 @@ class QueryOutcome:
     answer: str
     citations: list[QueryCitation]
     table_citations: list[TableCitation]
+    visual_citations: list[VisualCitation]
     evidence: list[RetrievedChunk]
     table_evidence: list[TableQueryResult]
+    visual_evidence: list[VisualQueryResult]
     unused_evidence: list[RetrievedChunk]
     unused_table_evidence: list[TableQueryResult]
+    unused_visual_evidence: list[VisualQueryResult]
+    visual_interpretation: VisualInterpretationResult | None
     citation_verification: CitationGroundingVerdict | None
     debug: dict
 
@@ -62,6 +81,7 @@ class TextQueryService:
         session_factory: sessionmaker[Session] | None = None,
         collection_name: str | None = None,
         table_collection_name: str | None = None,
+        visual_collection_name: str | None = None,
     ) -> None:
         settings = get_settings()
         self.ai_provider = ai_provider or get_ai_provider()
@@ -76,6 +96,13 @@ class TextQueryService:
             session_factory=self.session_factory,
             collection_name=self.table_collection_name,
         )
+        self.visual_collection_name = visual_collection_name or settings.qdrant_visual_collection
+        self.visual_retriever = VisualRetriever(
+            ai_provider=self.ai_provider,
+            qdrant_client=self.qdrant_client,
+            session_factory=self.session_factory,
+            collection_name=self.visual_collection_name,
+        )
 
     def query(
         self,
@@ -86,17 +113,22 @@ class TextQueryService:
         retrieval_mode: str = "dense",
         evidence_mode: str = "text",
         table_top_k: int = 4,
+        visual_top_k: int = 3,
         verify_citations: bool = False,
     ) -> QueryOutcome:
         retrieval_mode = retrieval_mode.lower()
         evidence_mode = evidence_mode.lower()
-        if evidence_mode not in {"text", "table", "auto"}:
+        if evidence_mode not in {"text", "table", "visual", "auto"}:
             raise ValueError(f"Unsupported evidence mode: {evidence_mode}")
 
         table_intent = detect_table_intent(question)
+        visual_intent = detect_visual_intent(question)
         should_retrieve_text = evidence_mode in {"text", "auto"}
         should_retrieve_tables = evidence_mode == "table" or (
             evidence_mode == "auto" and table_intent["detected"]
+        )
+        should_retrieve_visuals = evidence_mode == "visual" or (
+            evidence_mode == "auto" and visual_intent["detected"]
         )
 
         retrieved: list[RetrievedChunk] = []
@@ -126,6 +158,27 @@ class TextQueryService:
                     tables=table_results,
                 )
 
+        visual_retrieval_latency_ms = None
+        visual_results: list[VisualQueryResult] = []
+        visual_interpretation: VisualInterpretationResult | None = None
+        if should_retrieve_visuals:
+            start = time.perf_counter()
+            visual_results = self.visual_retriever.search(
+                query=question,
+                top_k=visual_top_k,
+                content_hash=content_hash,
+                retrieval_mode="visual_hybrid",
+            )
+            visual_retrieval_latency_ms = int((time.perf_counter() - start) * 1000)
+            if visual_results:
+                visual_interpretation = self.ai_provider.interpret_visual_evidence(
+                    question=question,
+                    visual_evidence=build_visual_evidence_inputs(
+                        visual_results,
+                        limit=visual_top_k,
+                    ),
+                )
+
         debug = {
             "collection_name": self.collection_name,
             "top_k": top_k,
@@ -145,23 +198,42 @@ class TextQueryService:
             "table_reasoning_used": table_reasoning is not None,
             "table_reasoning_status": table_reasoning.status if table_reasoning else None,
             "table_reasoning": asdict(table_reasoning) if table_reasoning else None,
+            "visual_indexed_collection": self.visual_collection_name,
+            "visual_top_k": visual_top_k,
+            "visual_retrieval_mode": "visual_hybrid",
+            "visual_retrieval_requested": should_retrieve_visuals,
+            "visual_retrieval_latency_ms": visual_retrieval_latency_ms,
+            "visual_retrieved_count": len(visual_results),
+            "visual_intent_detected": visual_intent["detected"],
+            "visual_intent_score": visual_intent["score"],
+            "visual_intent_matches": visual_intent["matches"],
+            "visual_interpretation_status": (
+                visual_interpretation.status if visual_interpretation else None
+            ),
+            "visual_interpretation": visual_interpretation_debug(visual_interpretation),
             "content_hash_scope": "specific" if content_hash else "all",
         }
 
-        if not retrieved and not table_results:
+        if not retrieved and not table_results and not visual_results:
             answer = (
                 "I could not find table evidence in the indexed documents to answer this question."
                 if evidence_mode == "table"
+                else "I could not find visual evidence in the indexed documents to answer this question."
+                if evidence_mode == "visual"
                 else "I do not have enough evidence from the indexed document to answer."
             )
             return QueryOutcome(
                 answer=answer,
                 citations=[],
                 table_citations=[],
+                visual_citations=[],
                 evidence=[],
                 table_evidence=[],
+                visual_evidence=[],
                 unused_evidence=[],
                 unused_table_evidence=[],
+                unused_visual_evidence=[],
+                visual_interpretation=None,
                 citation_verification=None,
                 debug=debug,
             )
@@ -177,10 +249,16 @@ class TextQueryService:
         grounding.extend(
             _table_grounding_evidence(table_results, table_reasoning)
         )
-        answer = self.ai_provider.generate_grounded_answer(
-            question=question,
-            evidence=grounding,
-        )
+        visual_grounding = visual_observations_to_grounding_evidence(visual_interpretation)
+        grounding.extend(visual_grounding)
+
+        if should_retrieve_visuals and visual_interpretation is not None:
+            answer = visual_interpretation.answer
+        else:
+            answer = self.ai_provider.generate_grounded_answer(
+                question=question,
+                evidence=grounding,
+            )
         citation_verification = None
         if verify_citations:
             citation_verification = self.ai_provider.verify_citation_grounding(
@@ -199,6 +277,7 @@ class TextQueryService:
         cited_ids = _extract_citation_ids(answer)
         citations = _build_answer_citations(retrieved, cited_ids)
         table_citations = _build_table_answer_citations(table_results, cited_ids)
+        visual_citations = _build_visual_answer_citations(visual_results, cited_ids)
         unused_evidence = [
             chunk
             for index, chunk in enumerate(retrieved, start=1)
@@ -209,13 +288,20 @@ class TextQueryService:
             for index, table in enumerate(table_results, start=1)
             if f"T{index}" not in cited_ids
         ]
+        unused_visual_evidence = [
+            visual
+            for index, visual in enumerate(visual_results, start=1)
+            if f"V{index}" not in cited_ids
+        ]
 
         debug.update(
             {
                 "answer_citation_count": len(citations),
                 "answer_table_citation_count": len(table_citations),
+                "answer_visual_citation_count": len(visual_citations),
                 "unused_retrieved_count": len(unused_evidence),
                 "unused_table_retrieved_count": len(unused_table_evidence),
+                "unused_visual_retrieved_count": len(unused_visual_evidence),
                 "citation_verification": (
                     asdict(citation_verification)
                     if citation_verification is not None
@@ -228,10 +314,14 @@ class TextQueryService:
             answer=answer,
             citations=citations,
             table_citations=table_citations,
+            visual_citations=visual_citations,
             evidence=retrieved,
             table_evidence=table_results,
+            visual_evidence=visual_results,
             unused_evidence=unused_evidence,
             unused_table_evidence=unused_table_evidence,
+            unused_visual_evidence=unused_visual_evidence,
+            visual_interpretation=visual_interpretation,
             citation_verification=citation_verification,
             debug=debug,
         )
@@ -339,7 +429,7 @@ def _table_grounding_evidence(
 def _extract_citation_ids(answer: str) -> set[str]:
     return {
         match.upper()
-        for match in re.findall(r"\[(C\d+|T\d+)\]", answer, flags=re.IGNORECASE)
+        for match in re.findall(r"\[(C\d+|T\d+|V\d+)\]", answer, flags=re.IGNORECASE)
     }
 
 
@@ -398,6 +488,36 @@ def _build_table_answer_citations(
     return citations
 
 
+def _build_visual_answer_citations(
+    visual_results: list[VisualQueryResult],
+    cited_ids: set[str],
+) -> list[VisualCitation]:
+    citations: list[VisualCitation] = []
+    for index, visual in enumerate(visual_results, start=1):
+        citation_id = f"V{index}"
+        if citation_id not in cited_ids:
+            continue
+        citations.append(
+            VisualCitation(
+                citation_id=citation_id,
+                evidence_type="visual",
+                visual_id=visual.visual_id,
+                source_path=visual.source_path,
+                source_artifact_path=visual.source_artifact_path,
+                artifact_path=visual.artifact_path,
+                page_start=visual.page_start,
+                page_end=visual.page_end,
+                visual_type=visual.visual_type,
+                visual_readiness=visual.visual_readiness,
+                score=visual.score,
+                dense_score=visual.dense_score,
+                lexical_score=visual.lexical_score,
+                hybrid_score=visual.hybrid_score,
+            )
+        )
+    return citations
+
+
 def detect_table_intent(question: str) -> dict:
     normalized = question.lower()
     matches: list[str] = []
@@ -427,6 +547,42 @@ def detect_table_intent(question: str) -> dict:
     matches.extend(financial_matches)
     deduped_matches = list(dict.fromkeys(matches))
     detected = bool(explicit_matches) or (bool(numeric_matches) and bool(financial_matches))
+    return {
+        "detected": detected,
+        "score": len(deduped_matches),
+        "matches": deduped_matches,
+    }
+
+
+def detect_visual_intent(question: str) -> dict:
+    normalized = question.lower()
+    terms = [
+        "figure",
+        "fig.",
+        "chart",
+        "diagram",
+        "exhibit",
+        "image",
+        "graph",
+        "plot",
+        "visual",
+        "shown",
+        "illustrates",
+        "line",
+        "bar",
+        "legend",
+        "axis",
+        "trend",
+    ]
+    matches = [
+        term
+        for term in terms
+        if re.search(rf"\b{re.escape(term)}s?\b", normalized)
+    ]
+    explicit = {"figure", "fig.", "chart", "diagram", "exhibit", "image", "graph", "plot", "visual"}
+    detected = any(match in explicit for match in matches)
+    detected = detected or ("shown" in matches and any(term in normalized for term in ["chart", "figure", "graph"]))
+    deduped_matches = list(dict.fromkeys(matches))
     return {
         "detected": detected,
         "score": len(deduped_matches),

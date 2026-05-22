@@ -37,8 +37,9 @@ class QueryRequest(BaseModel):
     content_hash: str | None = None
     top_k: int = Field(default=4, ge=1, le=10)
     retrieval_mode: str = Field(default="dense", pattern="^(dense|bm25|hybrid)$")
-    evidence_mode: str = Field(default="text", pattern="^(text|table|auto)$")
+    evidence_mode: str = Field(default="text", pattern="^(text|table|visual|auto)$")
     table_top_k: int = Field(default=4, ge=1, le=10)
+    visual_top_k: int = Field(default=3, ge=1, le=5)
     verify_citations: bool = False
 
 
@@ -108,6 +109,63 @@ class TableEvidenceResponse(BaseModel):
     page_end: int | None
 
 
+class VisualCitationResponse(BaseModel):
+    citation_id: str
+    evidence_type: str
+    visual_id: str
+    source_path: str
+    source_artifact_path: str
+    artifact_path: str | None = None
+    page_start: int | None
+    page_end: int | None
+    visual_type: str
+    visual_readiness: str
+    score: float
+    dense_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
+
+
+class VisualEvidenceResponse(BaseModel):
+    citation_id: str
+    visual_id: str
+    document_id: str
+    content_hash: str
+    score: float
+    dense_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
+    retrieval_mode: str
+    visual_type: str
+    source_kind: str
+    page_start: int | None
+    page_end: int | None
+    artifact_path: str | None = None
+    caption: str | None = None
+    section_heading: str | None = None
+    nearby_text: str | None = None
+    figure_label: str | None = None
+    visual_readiness: str
+    filename: str
+    source_path: str
+    source_artifact_path: str
+
+
+class VisualObservationResponse(BaseModel):
+    citation_id: str
+    visual_id: str
+    observation_type: str
+    question_answered: bool
+    extracted_facts: list[str]
+    visible_entities: list[str]
+    numeric_values: list[str]
+    confidence: float
+    limitations: list[str]
+    abstain_reason: str
+    supported: bool
+    reasoning: str
+
+
 class CitationVerificationResponse(BaseModel):
     verdict: str
     supported_citation_ids: list[str]
@@ -121,12 +179,16 @@ class QueryResponse(BaseModel):
     answer: str
     citations: list[CitationResponse]
     table_citations: list[TableCitationResponse] = []
+    visual_citations: list[VisualCitationResponse] = []
     answer_citations: list[CitationResponse]
     evidence: list[EvidenceResponse]
     table_evidence: list[TableEvidenceResponse] = []
+    visual_evidence: list[VisualEvidenceResponse] = []
+    visual_observations: list[VisualObservationResponse] = []
     retrieved_evidence: list[EvidenceResponse]
     unused_retrieved_evidence: list[EvidenceResponse]
     unused_table_evidence: list[TableEvidenceResponse] = []
+    unused_visual_evidence: list[VisualEvidenceResponse] = []
     citation_verification: CitationVerificationResponse | None = None
     debug: dict
 
