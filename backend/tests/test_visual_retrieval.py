@@ -327,3 +327,162 @@ def test_figure_candidate_fallback_when_no_docling_pictures(tmp_path):
     candidates = [e for e in evidence if e.source_kind == "text_reference"]
     assert len(candidates) >= 2
     assert any("Figure 1" in (e.figure_label or "") or "Figure 1" in (e.nearby_text or "") for e in candidates)
+
+
+import json
+from pathlib import Path
+
+import pypdfium2 as pdfium
+from qdrant_client import QdrantClient
+from sqlalchemy import select
+
+from docifer_backend.ingestion.models import Document
+from docifer_backend.retrieval.visuals.indexing import (
+    VISUAL_INDEX_STATUS_INDEXED,
+    VisualIndexingService,
+)
+from docifer_backend.retrieval.visuals.models import DocumentVisualIndexRun, VisualEvidenceRecord
+
+
+class FakeVisualAIProvider:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[float(len(t) % 10) / 10.0, 0.5, 0.3, 1.0] for t in texts]
+
+    def generate_grounded_answer(self, *, question: str, evidence: list) -> str:
+        return "No interpretation in Phase 7D."
+
+    def verify_citation_grounding(self, *, question: str, answer: str, evidence: list):
+        return None
+
+
+def write_visual_indexing_artifacts(tmp_path: Path) -> tuple[Path, str, str]:
+    content_hash = "a" * 64
+    source_path = tmp_path / "sample.pdf"
+
+    # Create a real 2-page PDF so rendering works
+    pdf = pdfium.PdfDocument.new()
+    for _ in range(2):
+        page = pdf.new_page(595, 842)
+        page.close()
+    pdf.save(str(source_path))
+    pdf.close()
+
+    docling_path = tmp_path / "docling.json"
+    markdown_path = tmp_path / "document.md"
+    canonical_path = tmp_path / "canonical.json"
+
+    docling_path.write_text(
+        json.dumps({
+            "texts": [
+                {
+                    "label": "section_header",
+                    "text": "Results",
+                    "prov": [{"page_no": 1}],
+                    "self_ref": "#/texts/0",
+                },
+                {
+                    "label": "caption",
+                    "text": "Figure 1: Main findings",
+                    "prov": [{"page_no": 1}],
+                    "self_ref": "#/texts/1",
+                },
+            ],
+            "pictures": [
+                {
+                    "captions": [{"$ref": "#/texts/1"}],
+                    "prov": [{"page_no": 1}],
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        "<!-- page 1 -->\nFigure 1 shows the main findings.\n<!-- page 2 -->\nConclusions follow.\n",
+        encoding="utf-8",
+    )
+    canonical_path.write_text(
+        json.dumps({
+            "artifacts": {
+                "docling_json": str(docling_path),
+                "markdown": str(markdown_path),
+                "directory": str(tmp_path),
+            },
+            "document": {
+                "content_hash": content_hash,
+                "filename": "sample.pdf",
+                "source_path": str(source_path),
+            },
+            "parser": {"name": "docling"},
+            "parse": {"page_count": 2, "figure_count": 1, "table_count": 0, "errors": []},
+        }),
+        encoding="utf-8",
+    )
+    return canonical_path, content_hash, str(source_path)
+
+
+def test_visual_indexing_creates_records_and_renders_pages(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    with session_factory() as session:
+        session.add(Document(
+            filename="sample.pdf",
+            source_path=source_path,
+            content_hash=content_hash,
+            file_size_bytes=100,
+        ))
+        session.commit()
+
+    qdrant_client = QdrantClient(":memory:")
+    service = VisualIndexingService(
+        session_factory=session_factory,
+        ai_provider=FakeVisualAIProvider(),
+        qdrant_client=qdrant_client,
+        collection_name="test_visual_evidence",
+        initialize_schema=False,
+    )
+
+    outcome = service.index_canonical_document(canonical_path)
+
+    assert outcome.status == VISUAL_INDEX_STATUS_INDEXED
+    assert outcome.page_render_count == 2
+    # With docling pictures present, figure_candidate_count is 0 (fallback not triggered)
+    assert outcome.figure_candidate_count == 0
+    assert outcome.visual_record_count >= 3  # 1 docling_picture + 2 page_renders
+
+    with session_factory() as session:
+        records = list(session.scalars(select(VisualEvidenceRecord)))
+        run = session.scalar(select(DocumentVisualIndexRun))
+        assert len(records) == outcome.visual_record_count
+        assert all(r.qdrant_point_id for r in records)
+        assert run.status == VISUAL_INDEX_STATUS_INDEXED
+
+    # Verify page JPEGs were created
+    pages_dir = tmp_path / "visuals" / "pages"
+    assert (pages_dir / "page_0001.jpg").exists()
+    assert (pages_dir / "page_0002.jpg").exists()
+
+
+def test_visual_indexing_is_idempotent(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_visual_indexing_artifacts(tmp_path)
+    with session_factory() as session:
+        session.add(Document(
+            filename="sample.pdf",
+            source_path=source_path,
+            content_hash=content_hash,
+            file_size_bytes=100,
+        ))
+        session.commit()
+
+    qdrant_client = QdrantClient(":memory:")
+    service = VisualIndexingService(
+        session_factory=session_factory,
+        ai_provider=FakeVisualAIProvider(),
+        qdrant_client=qdrant_client,
+        collection_name="test_visual_evidence",
+        initialize_schema=False,
+    )
+
+    first = service.index_canonical_document(canonical_path)
+    second = service.index_canonical_document(canonical_path)
+
+    assert first.status == VISUAL_INDEX_STATUS_INDEXED
+    assert second.reused_existing is True
