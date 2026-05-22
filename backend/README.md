@@ -328,3 +328,32 @@ Detailed notes are in:
 ```text
 docs/phase7e-structured-multimodal-interpretation.md
 ```
+
+## Phase 7G reliability hardening
+
+Phase 7G and 7G.1 added:
+
+- **Rate-limit retry/backoff** — all three OpenAI call sites (`generate_grounded_answer`, `verify_citation_grounding`, `interpret_visual_evidence`) retry up to 2 times on HTTP 429 with exponential backoff (~2s then ~4s). After max retries a `ProviderRateLimitError` is raised and the eval runner marks the result `status="provider_failed"` rather than `"failed"`.
+
+- **Abstention-triggered text retry** — when the model abstains on a text/auto query but evidence was retrieved, one retry fires with `top_k * 2` (capped at 8) to give the model a broader evidence set. Debug fields: `abstention_retry_triggered`, `initial_top_k`, `retry_top_k`, `initial_answer_was_abstention`, `retry_answer_was_abstention`.
+
+- **Table-mode retry** — when `evidence_mode="table"` and initial retrieval returns 0 results, one retry fires with `table_top_k * 2`.
+
+- **Tighter abstention detection** — `_detect_abstention` now uses first-person/system-inability phrases only, normalises curly apostrophes before contraction expansion, and splits the eval metric into `true_abstention_accuracy` and `false_abstention_rate`.
+
+- **Mixed Modality routing** — `resolve_evidence_mode` now checks `"mixed" in category` before visual/chart/figure terms so Mixed Modality questions route to `auto` mode correctly.
+
+Current test suite: **103 passed, 1 xfailed**
+
+Current full-corpus eval result (`phase7g1_full_40q`, 40/40 questions):
+
+```json
+{
+  "abstention_correct_rate": 0.5,
+  "true_abstention_accuracy": 0.75,
+  "false_abstention_rate": 0.0556,
+  "citation_presence_rate": 0.975,
+  "average_expected_answer_token_recall": 0.6625,
+  "failed": 0
+}
+```

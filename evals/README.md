@@ -109,3 +109,41 @@ Automated validation completed during implementation:
 Visual + eval focused tests: 28 passed
 Full backend suite: 86 passed, 1 xfailed
 ```
+
+## Phase 7F — First Full 40-Question Eval
+
+After indexing all 12 corpus documents, the eval can run against all 40 golden questions with no skips.
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase7f_full_40q --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Result: `40 evaluated, 0 failed, recall=0.647, citation=0.925, abstention_correct=0.375`
+
+## Phase 7G / 7G.1 — Abstention Hardening
+
+Phase 7G added rate-limit retry/backoff, tighter abstention detection (contractions, curly apostrophes), Mixed Modality routing fix, and abstention-triggered evidence expansion retry.
+
+Phase 7G.1 refined the marker list (removed broad phrases like "does not include" that appear in valid answers), split the abstention metric into `true_abstention_accuracy` and `false_abstention_rate`, and added table-mode retry.
+
+Latest eval run: `phase7g1_full_40q`
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase7g1_full_40q --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Result:
+
+```json
+{
+  "evaluated": 40,
+  "failed": 0,
+  "abstention_correct_rate": 0.5,
+  "true_abstention_accuracy": 0.75,
+  "false_abstention_rate": 0.0556,
+  "citation_presence_rate": 0.975,
+  "average_expected_answer_token_recall": 0.6625
+}
+```
+
+The summary JSON now includes `true_abstention_accuracy` and `false_abstention_rate` as separate metrics in addition to the combined `abstention_correct_rate`.
