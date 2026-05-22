@@ -72,3 +72,93 @@ def test_document_visual_index_run_persists(session_factory):
         loaded = session.scalar(select(DocumentVisualIndexRun))
         assert loaded.status == "indexed"
         assert loaded.visual_record_count == 13
+
+
+from qdrant_client import QdrantClient
+
+from docifer_backend.retrieval.vector_store import (
+    delete_visual_evidence_by_content_hash,
+    ensure_visual_collection,
+    search_visual_evidence_points,
+    upsert_visual_evidence,
+)
+from docifer_backend.retrieval.visuals.schemas import VisualEvidence
+
+
+def _make_visual_evidence(visual_id: str, page: int) -> VisualEvidence:
+    return VisualEvidence(
+        visual_id=visual_id,
+        visual_index=page - 1,
+        document_id="doc-1",
+        content_hash="c" * 64,
+        canonical_path="datasets/processed/cccccccccccc/job1/canonical.json",
+        filename="sample.pdf",
+        source_path="datasets/raw_pdfs/sample.pdf",
+        source_artifact_path="datasets/processed/cccccccccccc/job1/canonical.json",
+        visual_type="page_render",
+        source_kind="page_render",
+        page_start=page,
+        page_end=page,
+        artifact_path=f"datasets/processed/cccccccccccc/job1/visuals/pages/page_{page:04d}.jpg",
+        caption=None,
+        section_heading="Introduction",
+        nearby_text="Regional trade statistics for 2023.",
+        figure_label=None,
+        visual_readiness="weak",
+        extraction_method="page_render",
+        source_chunk_ids=[],
+        span_hash=None,
+    )
+
+
+_POINT_IDS = [
+    "00000000-0000-0000-0000-000000000001",
+    "00000000-0000-0000-0000-000000000002",
+    "00000000-0000-0000-0000-000000000003",
+]
+
+
+def test_upsert_and_search_visual_evidence():
+    client = QdrantClient(":memory:")
+    visuals = [_make_visual_evidence(f"cccccccccccc:page:{i:04d}", i) for i in range(1, 4)]
+    embeddings = [[float(i), 0.0, 0.0, 1.0] for i in range(1, 4)]
+    point_ids = _POINT_IDS
+
+    upsert_visual_evidence(
+        client,
+        collection_name="test_visual",
+        visuals=visuals,
+        embeddings=embeddings,
+        point_ids=point_ids,
+    )
+
+    results = search_visual_evidence_points(
+        client,
+        collection_name="test_visual",
+        query_vector=[3.0, 0.0, 0.0, 1.0],
+        top_k=2,
+        content_hash="c" * 64,
+    )
+    assert len(results) == 2
+    assert results[0][0].startswith("cccccccccccc:page:")
+
+
+def test_delete_visual_evidence_by_content_hash():
+    client = QdrantClient(":memory:")
+    visuals = [_make_visual_evidence("cccccccccccc:page:0001", 1)]
+    upsert_visual_evidence(
+        client,
+        collection_name="test_visual",
+        visuals=visuals,
+        embeddings=[[1.0, 0.0, 0.0, 1.0]],
+        point_ids=[_POINT_IDS[0]],
+    )
+    delete_visual_evidence_by_content_hash(client, collection_name="test_visual", content_hash="c" * 64)
+    results = search_visual_evidence_points(
+        client,
+        collection_name="test_visual",
+        query_vector=[1.0, 0.0, 0.0, 1.0],
+        top_k=5,
+        content_hash="c" * 64,
+    )
+    assert results == []
