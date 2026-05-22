@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from docifer_backend.api.health import router as health_router
 from docifer_backend.api.ingestion import router as ingestion_router
 from docifer_backend.api.retrieval import router as retrieval_router
+from docifer_backend.api.vector import router as vector_router
 from docifer_backend.config.settings import get_settings
 
 
@@ -18,6 +19,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(ingestion_router)
     app.include_router(retrieval_router)
+    app.include_router(vector_router)
 
     return app
 

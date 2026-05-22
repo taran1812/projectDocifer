@@ -3389,3 +3389,85 @@ Phase 8 is valid as an optional reranker:
 - True abstention accuracy improved to `1.0`.
 
 The reranker should remain disabled by default because neither model reached the aspirational `0.70+` recall target and both increase latency. Use `BAAI/bge-reranker-base` for quality experiments and `cross-encoder/ms-marco-MiniLM-L-6-v2` when latency matters more.
+
+---
+
+# Phase 8.5 - ANN / Vector Search Optimization
+
+## Goal
+
+Make Qdrant vector search behavior configurable and observable. Docifer already uses Qdrant ANN search; Phase 8.5 adds exact-search toggles, HNSW search controls, payload indexes, collection stats, and collection-level readiness checks.
+
+## Implemented Changes
+
+- Added Qdrant search settings:
+  - `QDRANT_EXACT_SEARCH`
+  - `QDRANT_SEARCH_EF`
+  - `QDRANT_HNSW_M`
+  - `QDRANT_HNSW_EF_CONSTRUCT`
+  - `QDRANT_CREATE_PAYLOAD_INDEXES`
+- Applied `SearchParams(exact=..., hnsw_ef=...)` to:
+  - text dense retrieval,
+  - table dense retrieval,
+  - visual dense retrieval.
+- Added HNSW create config for newly created text, table, and visual collections.
+- Added payload index creation during collection ensure/indexing.
+- Added payload indexes for text, table, and visual filtered fields.
+- Added vector collection stats helpers in Qdrant storage.
+- Added API endpoints:
+  - `GET /vector/collections`
+  - `GET /vector/collections/{collection_name}/stats`
+- Extended `/ready` with nonfatal collection-level checks:
+  - `text_collection`
+  - `table_collection`
+  - `visual_collection`
+- Added query debug fields:
+  - `vector_search_exact`
+  - `vector_search_ef`
+  - `vector_collection`
+- Added `/retrieve/visuals` vector debug fields when `debug=true`.
+- Added Phase 8.5 docs:
+  - `docs/phase8-5-vector-search-optimization.md`
+  - backend README notes
+  - eval README ablation commands
+
+## Validation
+
+Focused tests:
+
+```text
+backend/tests/test_vector_search_config.py: 6 passed
+Full backend suite: 115 passed, 1 xfailed
+Compile check: passed
+```
+
+Local in-memory Qdrant warns that payload indexes have no effect locally; this is expected and does not affect server-backed Qdrant behavior.
+
+## Ablation Commands
+
+ANN default:
+
+```powershell
+$env:QDRANT_EXACT_SEARCH="false"
+$env:QDRANT_SEARCH_EF="64"
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_5_ann_default --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Exact search:
+
+```powershell
+$env:QDRANT_EXACT_SEARCH="true"
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_5_exact_search --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Higher EF:
+
+```powershell
+$env:QDRANT_EXACT_SEARCH="false"
+$env:QDRANT_SEARCH_EF="128"
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_5_ann_ef128 --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+## Phase 8.5 Gate
+
+Phase 8.5 is code-valid when the backend suite passes. It becomes eval-valid after the three ablation runs are recorded and compared for recall and latency.

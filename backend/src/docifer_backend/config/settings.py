@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     qdrant_table_collection: str = "docifer_table_evidence"
     qdrant_visual_collection: str = "docifer_visual_evidence"
     qdrant_upsert_batch_size: int = 128
+    qdrant_exact_search: bool = False
+    qdrant_search_ef: int = 64
+    qdrant_hnsw_m: int = 16
+    qdrant_hnsw_ef_construct: int = 100
+    qdrant_create_payload_indexes: bool = True
     reranker_enabled: bool = False
     reranker_model: str = "BAAI/bge-reranker-base"
     reranker_candidate_top_n: int = 20

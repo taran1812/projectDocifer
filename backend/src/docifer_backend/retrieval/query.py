@@ -27,7 +27,11 @@ from docifer_backend.retrieval.tables.schemas import (
     TableReasoningResult,
     format_table_evidence_for_embedding,
 )
-from docifer_backend.retrieval.vector_store import RetrievedChunk, search_text_chunks
+from docifer_backend.retrieval.vector_store import (
+    RetrievedChunk,
+    search_text_chunks,
+    vector_search_debug,
+)
 from docifer_backend.retrieval.visuals.interpretation import (
     build_visual_evidence_inputs,
     visual_interpretation_debug,
@@ -291,6 +295,7 @@ class TextQueryService:
             "visual_interpretation": visual_interpretation_debug(visual_interpretation),
             "content_hash_scope": "specific" if content_hash else "all",
         }
+        debug.update(vector_search_debug(collection_name=self.collection_name))
         debug.update(rerank_debug)
 
         if not retrieved and not table_results and not visual_results:

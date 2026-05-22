@@ -5,11 +5,36 @@ from typing import TYPE_CHECKING
 
 from qdrant_client import QdrantClient, models
 
+from docifer_backend.config.settings import get_settings
 from docifer_backend.retrieval.chunking import TextChunk
 from docifer_backend.retrieval.tables.schemas import TableEvidence
 
 if TYPE_CHECKING:
     from docifer_backend.retrieval.visuals.schemas import VisualEvidence as VisualEvidenceType
+
+
+TEXT_PAYLOAD_INDEXES = {
+    "content_hash": models.PayloadSchemaType.KEYWORD,
+    "document_id": models.PayloadSchemaType.KEYWORD,
+    "source_path": models.PayloadSchemaType.KEYWORD,
+    "page_start": models.PayloadSchemaType.INTEGER,
+}
+
+TABLE_PAYLOAD_INDEXES = {
+    "content_hash": models.PayloadSchemaType.KEYWORD,
+    "document_id": models.PayloadSchemaType.KEYWORD,
+    "table_type": models.PayloadSchemaType.KEYWORD,
+    "table_readiness": models.PayloadSchemaType.KEYWORD,
+    "page_start": models.PayloadSchemaType.INTEGER,
+}
+
+VISUAL_PAYLOAD_INDEXES = {
+    "content_hash": models.PayloadSchemaType.KEYWORD,
+    "document_id": models.PayloadSchemaType.KEYWORD,
+    "visual_type": models.PayloadSchemaType.KEYWORD,
+    "source_kind": models.PayloadSchemaType.KEYWORD,
+    "page_start": models.PayloadSchemaType.INTEGER,
+}
 
 
 @dataclass(frozen=True)
@@ -39,15 +64,11 @@ def ensure_text_collection(
     collection_name: str,
     vector_size: int,
 ) -> None:
-    if client.collection_exists(collection_name):
-        return
-
-    client.create_collection(
+    _ensure_collection(
+        client,
         collection_name=collection_name,
-        vectors_config=models.VectorParams(
-            size=vector_size,
-            distance=models.Distance.COSINE,
-        ),
+        vector_size=vector_size,
+        payload_indexes=TEXT_PAYLOAD_INDEXES,
     )
 
 
@@ -57,15 +78,11 @@ def ensure_table_collection(
     collection_name: str,
     vector_size: int,
 ) -> None:
-    if client.collection_exists(collection_name):
-        return
-
-    client.create_collection(
+    _ensure_collection(
+        client,
         collection_name=collection_name,
-        vectors_config=models.VectorParams(
-            size=vector_size,
-            distance=models.Distance.COSINE,
-        ),
+        vector_size=vector_size,
+        payload_indexes=TABLE_PAYLOAD_INDEXES,
     )
 
 
@@ -178,6 +195,7 @@ def search_table_evidence_points(
         collection_name=collection_name,
         query=query_vector,
         query_filter=query_filter,
+        search_params=_vector_search_params(),
         limit=top_k,
         with_payload=True,
     )
@@ -229,6 +247,7 @@ def search_text_chunks(
         collection_name=collection_name,
         query=query_vector,
         query_filter=query_filter,
+        search_params=_vector_search_params(),
         limit=top_k,
         with_payload=True,
     )
@@ -275,14 +294,11 @@ def ensure_visual_collection(
     collection_name: str,
     vector_size: int,
 ) -> None:
-    if client.collection_exists(collection_name):
-        return
-    client.create_collection(
+    _ensure_collection(
+        client,
         collection_name=collection_name,
-        vectors_config=models.VectorParams(
-            size=vector_size,
-            distance=models.Distance.COSINE,
-        ),
+        vector_size=vector_size,
+        payload_indexes=VISUAL_PAYLOAD_INDEXES,
     )
 
 
@@ -351,6 +367,7 @@ def search_visual_evidence_points(
         collection_name=collection_name,
         query=query_vector,
         query_filter=query_filter,
+        search_params=_vector_search_params(),
         limit=top_k,
         with_payload=True,
     )
@@ -384,4 +401,74 @@ def delete_visual_evidence_by_content_hash(
             )
         ),
         wait=True,
+    )
+
+
+def vector_search_debug(*, collection_name: str) -> dict:
+    settings = get_settings()
+    return {
+        "vector_search_exact": settings.qdrant_exact_search,
+        "vector_search_ef": settings.qdrant_search_ef,
+        "vector_collection": collection_name,
+    }
+
+
+def _ensure_collection(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    vector_size: int,
+    payload_indexes: dict[str, models.PayloadSchemaType],
+) -> None:
+    if not client.collection_exists(collection_name):
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
+            ),
+            hnsw_config=_hnsw_config(),
+        )
+    if get_settings().qdrant_create_payload_indexes:
+        ensure_payload_indexes(
+            client,
+            collection_name=collection_name,
+            payload_indexes=payload_indexes,
+        )
+
+
+def ensure_payload_indexes(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    payload_indexes: dict[str, models.PayloadSchemaType],
+) -> None:
+    for field_name, field_schema in payload_indexes.items():
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=field_schema,
+                wait=True,
+            )
+        except Exception as exc:
+            message = str(exc).lower()
+            if "already" in message or "exists" in message:
+                continue
+            raise
+
+
+def _vector_search_params() -> models.SearchParams:
+    settings = get_settings()
+    return models.SearchParams(
+        exact=settings.qdrant_exact_search,
+        hnsw_ef=settings.qdrant_search_ef,
+    )
+
+
+def _hnsw_config() -> models.HnswConfigDiff:
+    settings = get_settings()
+    return models.HnswConfigDiff(
+        m=settings.qdrant_hnsw_m,
+        ef_construct=settings.qdrant_hnsw_ef_construct,
     )

@@ -3,7 +3,10 @@ from fastapi.responses import JSONResponse
 
 from docifer_backend.config.settings import get_settings
 from docifer_backend.storage.database import check_database_connection
-from docifer_backend.storage.qdrant import check_qdrant_connection
+from docifer_backend.storage.qdrant import (
+    check_qdrant_connection,
+    get_qdrant_collection_checks,
+)
 
 router = APIRouter(tags=["health"])
 
@@ -35,6 +38,16 @@ def readiness_check() -> JSONResponse:
             "qdrant": "ok" if qdrant_ready else "unavailable",
         },
     }
+    if qdrant_ready:
+        response_payload["checks"].update(get_qdrant_collection_checks())
+    else:
+        response_payload["checks"].update(
+            {
+                "text_collection": "unavailable",
+                "table_collection": "unavailable",
+                "visual_collection": "unavailable",
+            }
+        )
 
     return JSONResponse(
         status_code=(

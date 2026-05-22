@@ -185,3 +185,41 @@ Validated Phase 8 results:
 | `phase8_hybrid_reranker_minilm` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 0.6750 | 0.950 | 0.0556 | 1.00 | 4508.78 | 13809.00 |
 
 Phase 8 is valid as optional. Keep `RERANKER_ENABLED=false` by default until reranking can reach the `0.70+` recall target with acceptable latency.
+
+## Phase 8.5 - Vector Search Ablations
+
+Phase 8.5 measures Qdrant ANN/exact behavior. The goal is not to replace Qdrant, but to make vector search settings visible and comparable.
+
+ANN default:
+
+```powershell
+$env:QDRANT_EXACT_SEARCH="false"
+$env:QDRANT_SEARCH_EF="64"
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_5_ann_default --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Exact search:
+
+```powershell
+$env:QDRANT_EXACT_SEARCH="true"
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_5_exact_search --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Higher EF:
+
+```powershell
+$env:QDRANT_EXACT_SEARCH="false"
+$env:QDRANT_SEARCH_EF="128"
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase8_5_ann_ef128 --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Compare:
+
+- `average_expected_answer_token_recall`
+- `citation_presence_rate`
+- `false_abstention_rate`
+- `latency_ms_p50`
+- `latency_ms_p95`
+- category-level recall
+
+Use `GET /vector/collections` and `GET /vector/collections/{collection_name}/stats` to confirm point counts and payload index status before interpreting eval results.

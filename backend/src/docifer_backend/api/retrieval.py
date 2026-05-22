@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.query import TextQueryService
+from docifer_backend.retrieval.vector_store import vector_search_debug
 from docifer_backend.retrieval.tables.indexing import TableIndexingService
 from docifer_backend.retrieval.visuals.indexing import VisualIndexingService
 from docifer_backend.retrieval.visuals.retriever import VisualRetriever
@@ -271,6 +272,7 @@ def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResponse:
         debug = {
             "retrieved_count": len(results),
             "retrieval_mode": request.retrieval_mode,
+            **vector_search_debug(collection_name=retriever.collection_name),
             "scores": [
                 {
                     "visual_id": r.visual_id,

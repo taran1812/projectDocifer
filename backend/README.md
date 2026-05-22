@@ -414,3 +414,32 @@ Detailed notes are in:
 ```text
 docs/phase8-cross-encoder-reranker.md
 ```
+
+## Phase 8.5 vector search optimization
+
+Phase 8.5 adds Qdrant search controls and collection observability. Docifer already uses Qdrant ANN search; these settings let you compare ANN, exact search, and higher-HNSW-EF search behavior.
+
+Configuration:
+
+```text
+QDRANT_EXACT_SEARCH=false
+QDRANT_SEARCH_EF=64
+QDRANT_HNSW_M=16
+QDRANT_HNSW_EF_CONSTRUCT=100
+QDRANT_CREATE_PAYLOAD_INDEXES=true
+```
+
+New endpoints:
+
+```text
+GET /vector/collections
+GET /vector/collections/{collection_name}/stats
+```
+
+`/ready` now reports nonfatal collection-level checks for text, table, and visual vector collections. `/query` debug includes `vector_search_exact`, `vector_search_ef`, and `vector_collection`.
+
+Detailed notes are in:
+
+```text
+docs/phase8-5-vector-search-optimization.md
+```
