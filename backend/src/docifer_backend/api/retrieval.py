@@ -2,12 +2,17 @@ from fastapi import APIRouter
 
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.query import TextQueryService
+from docifer_backend.retrieval.tables.indexing import TableIndexingService
 from docifer_backend.schemas.retrieval import (
     CitationResponse,
     EvidenceResponse,
     CitationVerificationResponse,
     QueryRequest,
     QueryResponse,
+    TableCitationResponse,
+    TableEvidenceResponse,
+    TableIndexRequest,
+    TableIndexResponse,
     TextIndexRequest,
     TextIndexResponse,
 )
@@ -24,6 +29,15 @@ def index_text(request: TextIndexRequest) -> TextIndexResponse:
     return TextIndexResponse(**outcome.__dict__)
 
 
+@router.post("/index/tables", response_model=TableIndexResponse)
+def index_tables(request: TableIndexRequest) -> TableIndexResponse:
+    outcome = TableIndexingService().index_canonical_document(
+        request.canonical_path,
+        force_reindex=request.force_reindex,
+    )
+    return TableIndexResponse(**outcome.__dict__)
+
+
 @router.post("/query", response_model=QueryResponse)
 def query_text(request: QueryRequest) -> QueryResponse:
     outcome = TextQueryService().query(
@@ -31,23 +45,38 @@ def query_text(request: QueryRequest) -> QueryResponse:
         content_hash=request.content_hash,
         top_k=request.top_k,
         retrieval_mode=request.retrieval_mode,
+        evidence_mode=request.evidence_mode,
+        table_top_k=request.table_top_k,
         verify_citations=request.verify_citations,
     )
     evidence = _evidence_responses(outcome.evidence)
+    table_evidence = _table_evidence_responses(outcome.table_evidence)
     unused_chunk_ids = {chunk.chunk_id for chunk in outcome.unused_evidence}
     unused_evidence = _evidence_responses(
         outcome.evidence,
         include_chunk_ids=unused_chunk_ids,
     )
+    unused_table_ids = {table.table_id for table in outcome.unused_table_evidence}
+    unused_table_evidence = _table_evidence_responses(
+        outcome.table_evidence,
+        include_table_ids=unused_table_ids,
+    )
     citations = [CitationResponse(**citation.__dict__) for citation in outcome.citations]
+    table_citations = [
+        TableCitationResponse(**citation.__dict__)
+        for citation in outcome.table_citations
+    ]
 
     return QueryResponse(
         answer=outcome.answer,
         citations=citations,
+        table_citations=table_citations,
         answer_citations=citations,
         evidence=evidence,
+        table_evidence=table_evidence,
         retrieved_evidence=evidence,
         unused_retrieved_evidence=unused_evidence,
+        unused_table_evidence=unused_table_evidence,
         citation_verification=(
             CitationVerificationResponse(**outcome.citation_verification.__dict__)
             if outcome.citation_verification is not None
@@ -76,6 +105,41 @@ def _evidence_responses(chunks, *, include_chunk_ids: set[str] | None = None) ->
                 source_artifact_path=chunk.source_artifact_path,
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,
+            )
+        )
+    return responses
+
+
+def _table_evidence_responses(
+    tables,
+    *,
+    include_table_ids: set[str] | None = None,
+) -> list[TableEvidenceResponse]:
+    responses = []
+    for index, table in enumerate(tables, start=1):
+        if include_table_ids is not None and table.table_id not in include_table_ids:
+            continue
+        responses.append(
+            TableEvidenceResponse(
+                citation_id=f"T{index}",
+                table_id=table.table_id,
+                score=table.score,
+                dense_score=table.dense_score,
+                lexical_score=table.lexical_score,
+                hybrid_score=table.hybrid_score,
+                retrieval_mode=table.retrieval_mode,
+                table_type=table.table_type,
+                source_kind=table.source_kind,
+                table_readiness=table.table_readiness,
+                raw_text=table.raw_text,
+                markdown_table=table.markdown_table,
+                structured_json=table.structured_json,
+                section_heading=table.section_heading,
+                source_path=table.source_path,
+                source_artifact_path=table.source_artifact_path,
+                source_chunk_id=table.source_chunk_id,
+                page_start=table.page_start,
+                page_end=table.page_end,
             )
         )
     return responses

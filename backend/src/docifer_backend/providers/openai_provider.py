@@ -44,16 +44,13 @@ class OpenAIProvider:
         question: str,
         evidence: list[GroundingEvidence],
     ) -> str:
-        evidence_text = "\n\n".join(
-            f"[{item.citation_id}] Source: {item.source}\n{item.text}"
-            for item in evidence
-        )
+        evidence_text = _format_evidence_sections(evidence)
         response = self.client.responses.create(
             model=self.answer_model,
             instructions=(
-                "You are Docifer's text RAG baseline. Answer only from the "
+                "You are Docifer's grounded document QA system. Answer only from the "
                 "provided evidence. Cite every factual claim with citation IDs "
-                "like [C1]. If the evidence is insufficient, say you do not "
+                "like [C1] or [T1]. If the evidence is insufficient, say you do not "
                 "have enough evidence from the indexed document."
             ),
             input=(
@@ -76,10 +73,7 @@ class OpenAIProvider:
         answer: str,
         evidence: list[GroundingEvidence],
     ) -> CitationGroundingVerdict:
-        evidence_text = "\n\n".join(
-            f"[{item.citation_id}] Source: {item.source}\n{item.text}"
-            for item in evidence
-        )
+        evidence_text = _format_evidence_sections(evidence)
         response = self.client.responses.create(
             model=self.answer_model,
             instructions=(
@@ -131,3 +125,25 @@ def _strip_json_fence(text: str) -> str:
             lines = lines[:-1]
         return "\n".join(lines).strip()
     return text
+
+
+def _format_evidence_sections(evidence: list[GroundingEvidence]) -> str:
+    text_items = [item for item in evidence if item.citation_id.upper().startswith("C")]
+    table_items = [item for item in evidence if item.citation_id.upper().startswith("T")]
+    other_items = [
+        item
+        for item in evidence
+        if not item.citation_id.upper().startswith(("C", "T"))
+    ]
+    sections: list[str] = []
+    if text_items:
+        sections.append("Text evidence:\n" + "\n\n".join(_format_evidence_item(item) for item in text_items))
+    if table_items:
+        sections.append("Table evidence:\n" + "\n\n".join(_format_evidence_item(item) for item in table_items))
+    if other_items:
+        sections.append("Other evidence:\n" + "\n\n".join(_format_evidence_item(item) for item in other_items))
+    return "\n\n".join(sections)
+
+
+def _format_evidence_item(item: GroundingEvidence) -> str:
+    return f"[{item.citation_id}] Source: {item.source}\n{item.text}"

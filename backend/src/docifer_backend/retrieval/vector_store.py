@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from qdrant_client import QdrantClient, models
 
 from docifer_backend.retrieval.chunking import TextChunk
+from docifer_backend.retrieval.tables.schemas import TableEvidence
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,24 @@ class RetrievedChunk:
 
 
 def ensure_text_collection(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    vector_size: int,
+) -> None:
+    if client.collection_exists(collection_name):
+        return
+
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=models.VectorParams(
+            size=vector_size,
+            distance=models.Distance.COSINE,
+        ),
+    )
+
+
+def ensure_table_collection(
     client: QdrantClient,
     *,
     collection_name: str,
@@ -86,6 +105,108 @@ def upsert_text_chunks(
         )
 
 
+def upsert_table_evidence(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    tables: list[TableEvidence],
+    embeddings: list[list[float]],
+    point_ids: list[str],
+    batch_size: int = 128,
+) -> None:
+    if len(tables) != len(embeddings) or len(tables) != len(point_ids):
+        raise ValueError("Table, embedding, and point ID counts must match.")
+    if not tables:
+        return
+
+    ensure_table_collection(
+        client,
+        collection_name=collection_name,
+        vector_size=len(embeddings[0]),
+    )
+    points = [
+        models.PointStruct(
+            id=point_id,
+            vector=embedding,
+            payload={
+                "table_id": table.table_id,
+                "content_hash": table.content_hash,
+                "document_id": table.document_id,
+                "canonical_path": table.canonical_path,
+                "page_start": table.page_start,
+                "page_end": table.page_end,
+                "table_type": table.table_type,
+                "source_kind": table.source_kind,
+                "section_heading": table.section_heading,
+                "table_readiness": table.table_readiness,
+                "evidence_type": "structured table" if table.table_type == "structured" else "table-like text",
+                "extraction_method": table.extraction_method,
+                "span_hash": table.span_hash,
+                "source_chunk_id": table.source_chunk_id,
+                "source_path": table.source_path,
+                "source_artifact_path": table.source_artifact_path,
+            },
+        )
+        for table, embedding, point_id in zip(tables, embeddings, point_ids, strict=True)
+    ]
+    for start in range(0, len(points), batch_size):
+        client.upsert(
+            collection_name=collection_name,
+            points=points[start:start + batch_size],
+            wait=True,
+        )
+
+
+def search_table_evidence_points(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    query_vector: list[float],
+    top_k: int,
+    content_hash: str | None = None,
+) -> list[tuple[str, float]]:
+    query_filter = _content_hash_filter(content_hash)
+    response = client.query_points(
+        collection_name=collection_name,
+        query=query_vector,
+        query_filter=query_filter,
+        limit=top_k,
+        with_payload=True,
+    )
+
+    results: list[tuple[str, float]] = []
+    for point in response.points:
+        payload = point.payload or {}
+        table_id = payload.get("table_id")
+        if table_id:
+            results.append((str(table_id), float(point.score)))
+    return results
+
+
+def delete_table_evidence_by_content_hash(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    content_hash: str,
+) -> None:
+    if not client.collection_exists(collection_name):
+        return
+    client.delete(
+        collection_name=collection_name,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="content_hash",
+                        match=models.MatchValue(value=content_hash),
+                    )
+                ]
+            )
+        ),
+        wait=True,
+    )
+
+
 def search_text_chunks(
     client: QdrantClient,
     *,
@@ -94,16 +215,7 @@ def search_text_chunks(
     top_k: int,
     content_hash: str | None = None,
 ) -> list[RetrievedChunk]:
-    query_filter = None
-    if content_hash:
-        query_filter = models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="content_hash",
-                    match=models.MatchValue(value=content_hash),
-                )
-            ]
-        )
+    query_filter = _content_hash_filter(content_hash)
 
     response = client.query_points(
         collection_name=collection_name,
@@ -134,3 +246,16 @@ def search_text_chunks(
             )
         )
     return results
+
+
+def _content_hash_filter(content_hash: str | None) -> models.Filter | None:
+    if not content_hash:
+        return None
+    return models.Filter(
+        must=[
+            models.FieldCondition(
+                key="content_hash",
+                match=models.MatchValue(value=content_hash),
+            )
+        ]
+    )

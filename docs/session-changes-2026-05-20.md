@@ -2101,7 +2101,18 @@ e765bcb feat(audit): add metrics computation and heuristic verdicts
 ad48036 fix(audit): guard _get_document_id, fix docling stage try-scope, chunk_count default 0, is_latest test assertions, serial-execution note
 ```
 
-Current Phase 7A completion work is not yet committed.
+Phase 7A completion work was committed as:
+
+```text
+9b5ee39 feat(audit): complete Phase 7A parse quality audit
+```
+
+Untracked user-side files intentionally left out of the commit:
+
+```text
+.claude/
+PROJECT_EVALUATION.md
+```
 
 Also committed earlier this session:
 
@@ -2109,3 +2120,213 @@ Also committed earlier this session:
 4f073e9 Add Phase 7A parse quality audit design spec
 772def3 Add Phase 7A implementation plan
 ```
+
+---
+
+# Phase 7B Changes - Table Intelligence
+
+Phase 7B implemented table evidence extraction, indexing, retrieval, and query integration.
+
+## Phase 7B Backend Model
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/tables/models.py
+```
+
+New tables:
+
+- `table_evidence_records`
+- `document_table_index_runs`
+
+`create_database_schema()` now registers the table models.
+
+## Phase 7B Extraction
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/tables/extraction.py
+backend/src/docifer_backend/retrieval/tables/schemas.py
+```
+
+Implemented:
+
+- structured Docling table extraction from `docling.json["tables"]`,
+- Markdown pipe-table extraction from `document.md`,
+- fallback table-like text span extraction from `document.md`,
+- deterministic table IDs,
+- span hashes for deduplication,
+- table readiness and risk flags,
+- source page and source chunk metadata where available.
+
+## Phase 7B Indexing
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/tables/indexing.py
+```
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/vector_store.py
+backend/src/docifer_backend/config/settings.py
+.env.example
+```
+
+Implemented:
+
+- `TableIndexingService.index_canonical_document(...)`,
+- `QDRANT_TABLE_COLLECTION=docifer_table_evidence`,
+- deterministic Qdrant point IDs via `uuid5(NAMESPACE_URL, table_id)`,
+- batched table evidence upserts,
+- force reindex cleanup for stale Qdrant points and DB records,
+- idempotent reuse of successful table index runs.
+
+## Phase 7B Retrieval
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/tables/retriever.py
+```
+
+Implemented table retrieval modes:
+
+- `table_dense`
+- `table_bm25`
+- `table_hybrid`
+
+Table hybrid retrieval is intentionally weighted toward BM25/lexical scoring to support exact financial/table questions.
+
+## Phase 7B Query Integration
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/query.py
+backend/src/docifer_backend/providers/openai_provider.py
+backend/src/docifer_backend/api/retrieval.py
+backend/src/docifer_backend/schemas/retrieval.py
+```
+
+Added:
+
+- `POST /index/tables`,
+- `/query.evidence_mode`: `text`, `table`, `auto`,
+- `/query.table_top_k`,
+- table intent detection,
+- table citations using `[T1]`, `[T2]`, etc.,
+- separate `table_citations`, `table_evidence`, and `unused_table_evidence`,
+- table evidence support in citation-grounding verification.
+
+## Phase 7B Documentation
+
+Added:
+
+```text
+docs/phase7b-table-intelligence.md
+```
+
+Updated:
+
+```text
+backend/README.md
+evals/README.md
+docs/session-changes-2026-05-20.md
+```
+
+## Phase 7B Tests
+
+Added:
+
+```text
+backend/tests/test_table_retrieval.py
+```
+
+Covered:
+
+- structured Docling table extraction,
+- Markdown table extraction,
+- fallback table-like text extraction,
+- table indexing idempotency,
+- Qdrant point ID persistence,
+- hybrid table retrieval,
+- table-only query citations,
+- table-intent false positive guard,
+- compound signal detection for `segment`, `highest`, `2025`, `net income`.
+
+Full suite validation:
+
+```text
+53 passed, 1 xfailed
+```
+
+Command:
+
+```powershell
+uv run --project backend pytest --basetemp backend/.pytest_tmp
+```
+
+## Phase 7B Real Validation
+
+Real table indexing was run for:
+
+| Document | Hash Prefix | Evidence Count | Notes |
+|---|---|---:|---|
+| World Bank | `8109582811fe` | 3 | structured + markdown + fallback |
+| JPMorgan | `2a3ee9733eaf` | 445 | fallback table-like text spans |
+
+Validated target query:
+
+```text
+Which segment had the highest 2025 net income?
+```
+
+With:
+
+```json
+{
+  "evidence_mode": "table",
+  "table_top_k": 4,
+  "verify_citations": true
+}
+```
+
+Result:
+
+```text
+Commercial & Investment Bank had the highest 2025 net income at $27,761 million.
+```
+
+The answer returned table citations and the verifier returned:
+
+```text
+supported
+```
+
+Auto mode was also validated with `retrieval_mode="hybrid"` and returned table citations with a supported verifier verdict.
+
+The updated FastAPI server was restarted and `/openapi.json` confirmed:
+
+```text
+/index/tables present: true
+/query present: true
+```
+
+An HTTP `POST /query` table-mode request returned:
+
+```text
+Commercial & Investment Bank had the highest 2025 net income at $27,761 million.
+```
+
+with 2 table citations and verifier verdict `supported`.
+
+## Phase 7B Gate Status
+
+Phase 7B is complete and valid as a table retrieval and evidence-packaging phase.
+
+It improves retrieval for table QA, but does not yet implement deterministic table computation or SQL-style analytics. That remains deferred to a later reasoning phase.

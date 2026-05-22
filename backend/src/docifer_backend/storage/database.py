@@ -56,6 +56,7 @@ def create_database_schema() -> None:
     # Import models here so their tables are registered on Base.metadata.
     import docifer_backend.ingestion.models  # noqa: F401
     import docifer_backend.retrieval.models  # noqa: F401
+    import docifer_backend.retrieval.tables.models  # noqa: F401
     import docifer_backend.audit.models  # noqa: F401
 
     Base.metadata.create_all(bind=get_database_engine())

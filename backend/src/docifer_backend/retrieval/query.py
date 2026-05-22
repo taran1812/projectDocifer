@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import asdict, dataclass
 
 from qdrant_client import QdrantClient
@@ -12,6 +13,12 @@ from docifer_backend.providers.base import AIProvider, CitationGroundingVerdict,
 from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import BM25Retriever
 from docifer_backend.retrieval.hybrid import merge_hybrid_results
+from docifer_backend.retrieval.tables.retriever import TableRetriever
+from docifer_backend.retrieval.tables.schemas import (
+    TableCitation,
+    TableQueryResult,
+    format_table_evidence_for_embedding,
+)
 from docifer_backend.retrieval.vector_store import RetrievedChunk, search_text_chunks
 from docifer_backend.storage.database import get_session_factory
 from docifer_backend.storage.qdrant import get_qdrant_client
@@ -35,8 +42,11 @@ class QueryCitation:
 class QueryOutcome:
     answer: str
     citations: list[QueryCitation]
+    table_citations: list[TableCitation]
     evidence: list[RetrievedChunk]
+    table_evidence: list[TableQueryResult]
     unused_evidence: list[RetrievedChunk]
+    unused_table_evidence: list[TableQueryResult]
     citation_verification: CitationGroundingVerdict | None
     debug: dict
 
@@ -49,6 +59,7 @@ class TextQueryService:
         qdrant_client: QdrantClient | None = None,
         session_factory: sessionmaker[Session] | None = None,
         collection_name: str | None = None,
+        table_collection_name: str | None = None,
     ) -> None:
         settings = get_settings()
         self.ai_provider = ai_provider or get_ai_provider()
@@ -56,6 +67,13 @@ class TextQueryService:
         self.session_factory = session_factory or get_session_factory()
         self.collection_name = collection_name or settings.qdrant_text_collection
         self.bm25_retriever = BM25Retriever(session_factory=self.session_factory)
+        self.table_collection_name = table_collection_name or settings.qdrant_table_collection
+        self.table_retriever = TableRetriever(
+            ai_provider=self.ai_provider,
+            qdrant_client=self.qdrant_client,
+            session_factory=self.session_factory,
+            collection_name=self.table_collection_name,
+        )
 
     def query(
         self,
@@ -64,29 +82,77 @@ class TextQueryService:
         content_hash: str | None = None,
         top_k: int = 4,
         retrieval_mode: str = "dense",
+        evidence_mode: str = "text",
+        table_top_k: int = 4,
         verify_citations: bool = False,
     ) -> QueryOutcome:
         retrieval_mode = retrieval_mode.lower()
-        retrieved = self._retrieve(
-            question=question,
-            content_hash=content_hash,
-            top_k=top_k,
-            retrieval_mode=retrieval_mode,
+        evidence_mode = evidence_mode.lower()
+        if evidence_mode not in {"text", "table", "auto"}:
+            raise ValueError(f"Unsupported evidence mode: {evidence_mode}")
+
+        table_intent = detect_table_intent(question)
+        should_retrieve_text = evidence_mode in {"text", "auto"}
+        should_retrieve_tables = evidence_mode == "table" or (
+            evidence_mode == "auto" and table_intent["detected"]
         )
 
-        if not retrieved:
+        retrieved: list[RetrievedChunk] = []
+        if should_retrieve_text:
+            retrieved = self._retrieve(
+                question=question,
+                content_hash=content_hash,
+                top_k=top_k,
+                retrieval_mode=retrieval_mode,
+            )
+
+        table_retrieval_latency_ms = None
+        table_results: list[TableQueryResult] = []
+        if should_retrieve_tables:
+            start = time.perf_counter()
+            table_results = self.table_retriever.search(
+                query=question,
+                top_k=table_top_k,
+                content_hash=content_hash,
+                retrieval_mode="table_hybrid",
+            )
+            table_retrieval_latency_ms = int((time.perf_counter() - start) * 1000)
+
+        debug = {
+            "collection_name": self.collection_name,
+            "top_k": top_k,
+            "retrieval_mode": retrieval_mode,
+            "verify_citations": verify_citations,
+            "evidence_mode": evidence_mode,
+            "retrieved_count": len(retrieved),
+            "table_indexed_collection": self.table_collection_name,
+            "table_top_k": table_top_k,
+            "table_retrieval_mode": "table_hybrid",
+            "table_retrieval_requested": should_retrieve_tables,
+            "table_retrieval_latency_ms": table_retrieval_latency_ms,
+            "table_retrieved_count": len(table_results),
+            "table_intent_detected": table_intent["detected"],
+            "table_intent_score": table_intent["score"],
+            "table_intent_matches": table_intent["matches"],
+            "content_hash_scope": "specific" if content_hash else "all",
+        }
+
+        if not retrieved and not table_results:
+            answer = (
+                "I could not find table evidence in the indexed documents to answer this question."
+                if evidence_mode == "table"
+                else "I do not have enough evidence from the indexed document to answer."
+            )
             return QueryOutcome(
-                answer="I do not have enough evidence from the indexed document to answer.",
+                answer=answer,
                 citations=[],
+                table_citations=[],
                 evidence=[],
+                table_evidence=[],
                 unused_evidence=[],
+                unused_table_evidence=[],
                 citation_verification=None,
-                debug={
-                    "collection_name": self.collection_name,
-                    "top_k": top_k,
-                    "retrieval_mode": retrieval_mode,
-                    "retrieved_count": 0,
-                },
+                debug=debug,
             )
 
         grounding = [
@@ -97,6 +163,14 @@ class TextQueryService:
             )
             for index, chunk in enumerate(retrieved, start=1)
         ]
+        grounding.extend(
+            GroundingEvidence(
+                citation_id=f"T{index}",
+                text=format_table_evidence_for_embedding(table),
+                source=_format_table_source(table),
+            )
+            for index, table in enumerate(table_results, start=1)
+        )
         answer = self.ai_provider.generate_grounded_answer(
             question=question,
             evidence=grounding,
@@ -118,32 +192,42 @@ class TextQueryService:
 
         cited_ids = _extract_citation_ids(answer)
         citations = _build_answer_citations(retrieved, cited_ids)
+        table_citations = _build_table_answer_citations(table_results, cited_ids)
         unused_evidence = [
             chunk
             for index, chunk in enumerate(retrieved, start=1)
             if f"C{index}" not in cited_ids
         ]
+        unused_table_evidence = [
+            table
+            for index, table in enumerate(table_results, start=1)
+            if f"T{index}" not in cited_ids
+        ]
 
-        return QueryOutcome(
-            answer=answer,
-            citations=citations,
-            evidence=retrieved,
-            unused_evidence=unused_evidence,
-            citation_verification=citation_verification,
-            debug={
-                "collection_name": self.collection_name,
-                "top_k": top_k,
-                "retrieval_mode": retrieval_mode,
-                "verify_citations": verify_citations,
-                "retrieved_count": len(retrieved),
+        debug.update(
+            {
                 "answer_citation_count": len(citations),
+                "answer_table_citation_count": len(table_citations),
                 "unused_retrieved_count": len(unused_evidence),
+                "unused_table_retrieved_count": len(unused_table_evidence),
                 "citation_verification": (
                     asdict(citation_verification)
                     if citation_verification is not None
                     else None
                 ),
-            },
+            }
+        )
+
+        return QueryOutcome(
+            answer=answer,
+            citations=citations,
+            table_citations=table_citations,
+            evidence=retrieved,
+            table_evidence=table_results,
+            unused_evidence=unused_evidence,
+            unused_table_evidence=unused_table_evidence,
+            citation_verification=citation_verification,
+            debug=debug,
         )
 
     def _retrieve(
@@ -201,8 +285,21 @@ def _format_source(chunk: RetrievedChunk) -> str:
     return f"{chunk.filename}, {page_label}, chunk {chunk.chunk_id}"
 
 
+def _format_table_source(table: TableQueryResult) -> str:
+    if table.page_start and table.page_end and table.page_start != table.page_end:
+        page_label = f"pages {table.page_start}-{table.page_end}"
+    elif table.page_start:
+        page_label = f"page {table.page_start}"
+    else:
+        page_label = "page unknown"
+    return f"table:{table.table_id}, {table.filename}, {page_label}"
+
+
 def _extract_citation_ids(answer: str) -> set[str]:
-    return {match.upper() for match in re.findall(r"\[(C\d+)\]", answer, flags=re.IGNORECASE)}
+    return {
+        match.upper()
+        for match in re.findall(r"\[(C\d+|T\d+)\]", answer, flags=re.IGNORECASE)
+    }
 
 
 def _build_answer_citations(
@@ -229,3 +326,68 @@ def _build_answer_citations(
             )
         )
     return citations
+
+
+def _build_table_answer_citations(
+    table_results: list[TableQueryResult],
+    cited_ids: set[str],
+) -> list[TableCitation]:
+    citations: list[TableCitation] = []
+    for index, table in enumerate(table_results, start=1):
+        citation_id = f"T{index}"
+        if citation_id not in cited_ids:
+            continue
+        citations.append(
+            TableCitation(
+                citation_id=citation_id,
+                evidence_type="table",
+                table_id=table.table_id,
+                source_path=table.source_path,
+                source_artifact_path=table.source_artifact_path,
+                page_start=table.page_start,
+                page_end=table.page_end,
+                table_type=table.table_type,
+                table_readiness=table.table_readiness,
+                score=table.score,
+                dense_score=table.dense_score,
+                lexical_score=table.lexical_score,
+                hybrid_score=table.hybrid_score,
+            )
+        )
+    return citations
+
+
+def detect_table_intent(question: str) -> dict:
+    normalized = question.lower()
+    matches: list[str] = []
+    explicit_matches: list[str] = []
+    explicit_terms = ["table", "row", "column"]
+    for term in explicit_terms:
+        if re.search(rf"\b{re.escape(term)}s?\b", normalized):
+            explicit_matches.append(term)
+    matches.extend(explicit_matches)
+
+    numeric_matches = sorted(set(re.findall(r"\b20\d\d\b|\$|%|\bbillion\b|\bmillion\b", normalized)))
+    financial_terms = [
+        "net income",
+        "net interest income",
+        "noninterest revenue",
+        "revenue",
+        "segment",
+        "total",
+        "assets",
+        "liabilities",
+        "highest",
+        "lowest",
+        "compare",
+    ]
+    financial_matches = [term for term in financial_terms if term in normalized]
+    matches.extend(numeric_matches)
+    matches.extend(financial_matches)
+    deduped_matches = list(dict.fromkeys(matches))
+    detected = bool(explicit_matches) or (bool(numeric_matches) and bool(financial_matches))
+    return {
+        "detected": detected,
+        "score": len(deduped_matches),
+        "matches": deduped_matches,
+    }

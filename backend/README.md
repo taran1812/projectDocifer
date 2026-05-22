@@ -30,6 +30,7 @@ Running the same PDF again without `--force` reuses the existing successful job 
 - `POST /ingestion/jobs`
 - `GET /ingestion/jobs/{job_id}`
 - `POST /index/text`
+- `POST /index/tables`
 - `POST /query`
 
 Example request body:
@@ -159,3 +160,40 @@ parse_audit.md
 ```
 
 New ingestions automatically trigger the audit after a successful parse. Audit failures are advisory and do not block ingestion.
+
+## Phase 7B table intelligence
+
+Phase 7B adds table evidence objects beside text chunks. It indexes structured Docling tables, Markdown tables, and fallback table-like text spans into the Qdrant collection:
+
+```text
+docifer_table_evidence
+```
+
+Index table evidence for a parsed document:
+
+```json
+{
+  "canonical_path": "datasets/processed/2a3ee9733eaf/e8351c2d-49a0-425e-a76b-e781487001d5/canonical.json",
+  "force_reindex": false
+}
+```
+
+Ask a table-only question:
+
+```json
+{
+  "question": "Which segment had the highest 2025 net income?",
+  "content_hash": "2a3ee9733eafd01e7667c5540fbd797c4cc688d14f00638a877f5623d1316d9d",
+  "evidence_mode": "table",
+  "table_top_k": 4,
+  "verify_citations": true
+}
+```
+
+`/query` now supports:
+
+- `evidence_mode="text"`: existing text-only behavior
+- `evidence_mode="table"`: table evidence only
+- `evidence_mode="auto"`: text retrieval plus table retrieval when table intent is detected
+
+Table evidence responses are returned separately as `table_evidence`, `table_citations`, and `unused_table_evidence`.
