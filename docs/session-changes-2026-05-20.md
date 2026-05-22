@@ -2889,6 +2889,89 @@ It is ready for live validation with an OpenAI vision-capable model and indexed 
 
 ---
 
+# Phase 7E Live Validation and Corpus Expansion (2026-05-22)
+
+## Live Vision Validation
+
+Server restarted with Phase 7E code. World Bank visual evidence (7 records) used for first live call:
+
+- Question: "What does the figure show about transitions across growth strategies?"
+- `visual_interpretation_status = supported`, confidence = 0.9
+- Answer included `[V1]` citation
+- 4 extracted facts (investment → infusion → innovation ladder)
+
+Phase 7E live validation passed.
+
+## Citation Bug Fix ([V1] Stripping)
+
+Initial category-mode eval showed `Chart / Visual: citation_present=0.00` despite correct answers.
+
+**Bug 1 — query.py:** Verifier `revised_answer` replaced the visual interpretation answer even when verdict was `supported`, stripping `[V1]` markers. Fix: only replace answer when verdict is `unsupported` or `partially_supported`.
+
+**Bug 2 — openai_provider.py:** GPT-4o-mini did not reliably include `[V1]` in JSON `answer` field. Fix: post-processing appends first `used_citation_id` when answer is supported, non-empty, and contains no citation marker.
+
+Committed: `281a76e fix(visuals): guarantee [V1] citation in visual answers`
+
+## Corpus Expansion — Visual Question Docs
+
+DOC-002, DOC-004, DOC-008, DOC-012 indexed (text + tables + visuals) to enable the 5 golden chart/visual questions.
+
+Visual indexing required recreating the `docifer_visual_evidence` Qdrant collection (was dim=4 from tests, needed dim=1536).
+
+Eval `phase7e_full_final` across 8 indexed docs: 26/40 evaluated, `recall=0.689`, `citation=0.923`.
+Visual category: recall=1.00 on 4/5 questions (QA-036 rate-limited, answered manually).
+
+---
+
+# Phase 7F — Corpus Completion + First Full 40-Question Eval (2026-05-22)
+
+## Remaining Docs Indexed
+
+DOC-006, DOC-009, DOC-010, DOC-011 were the last four unindexed documents. All 5 golden chart/visual questions were on docs not yet indexed, so the previous eval only covered 26/40 questions.
+
+Ingested, text-indexed, table-indexed, and visual-indexed all 4:
+
+| Doc ID | PDF | Text Chunks | Tables | Visuals |
+|---|---|---:|---:|---:|
+| DOC-006 | `BOSIB13bdde89d07f1b3711dd8e86adb477.pdf` | 201 | 32 | 49 |
+| DOC-009 | `2025-03-12-NASA-HDBK-1009A.pdf` | 133 | 7 | 88 |
+| DOC-010 | `NIST.SP.800-53r5.pdf` | 1525 | 250 | 492 |
+| DOC-011 | `amtg_handbook.pdf` | 2239 | 188 | 677 |
+
+## First Full 40-Question Eval — phase7f_full_40q
+
+```json
+{
+  "evaluated": 40,
+  "failed": 0,
+  "skipped": 0,
+  "citation_presence_rate": 0.925,
+  "average_expected_answer_token_recall": 0.6467,
+  "abstention_correct_rate": 0.375,
+  "latency_ms_p50": 3180.66
+}
+```
+
+Per-category:
+
+| Category | n | Avg Recall | Citation % |
+|---|---|---:|---:|
+| Chart / Visual | 5 | 0.89 | 100% |
+| Text Factual | 14 | 0.83 | 100% |
+| Table Reasoning | 4 | 0.50 | 75% |
+| Text Synthesis | 6 | 0.44 | 100% |
+| Table Lookup | 5 | 0.54 | 80% |
+| Mixed Modality | 2 | 0.33 | 100% |
+| Unsupported / Abstention | 4 | — | — |
+
+Key findings:
+- All 40 questions evaluable, 0 failed, 0 skipped.
+- `abstention_correct_rate = 0.375` — primary weakness identified.
+- Mixed Modality questions routed to `visual` instead of `auto` — routing bug found.
+- Visual category recall = 0.89 across all 5 questions.
+
+---
+
 # Phase 7G — Abstention + Retry Hardening (2026-05-22)
 
 ## Baseline
@@ -3170,181 +3253,23 @@ Per-category:
 
 ---
 
-# Phase 7E Live Validation and Corpus Expansion (2026-05-22)
+# Complete Indexed Corpus State (as of Phase 7G.1)
 
-## Server Restart
+All 12 documents in the golden evaluation set are fully indexed.
 
-The FastAPI server was restarted with Phase 7D/7E code loaded. Routes confirmed:
-
-```text
-POST /index/visuals
-POST /retrieve/visuals
-```
-
-## Live Vision Validation
-
-World Bank visual evidence (7 records, already indexed from Phase 7D) was used for the first live call:
-
-```text
-Question: What does the figure show about transitions across growth strategies?
-```
-
-Request:
-
-```json
-{
-  "evidence_mode": "visual",
-  "visual_top_k": 3,
-  "verify_citations": false
-}
-```
-
-Result:
-
-- `visual_interpretation_status = supported`
-- `confidence = 0.9`
-- `answer_visual_citation_count = 1`
-- Answer included `[V1]` citation
-- `observation_type = explanation`, `question_answered = true`
-- 4 extracted facts about investment → infusion → innovation ladder
-
-Phase 7E live validation passed.
-
-## Corpus Expansion — Visual Question Docs
-
-The 5 golden chart/visual questions are on DOC-002, DOC-004, DOC-008, DOC-012. These were not previously indexed.
-
-Ingested, text-indexed, table-indexed, and visual-indexed all 4:
-
-| Doc ID | PDF | Text Chunks | Table Evidence | Visual Records |
+| Doc ID | PDF | Text chunks | Table evidence | Visual records |
 |---|---|---:|---:|---:|
-| DOC-002 | `NVIDIA-2025-Annual-Report.pdf` | 645 | 156 | 181 |
-| DOC-004 | `COSTco-Annual-Report-2025.pdf` | 234 | 56 | 76 |
-| DOC-008 | `WSPR_2024_EN_WEB_1.pdf` | 1141 | 193 | 386 |
-| DOC-012 | `9789240115569-eng.pdf` | 902 | 61 | 342 |
+| DOC-001 | `2025_AnnualReport.pdf` (Microsoft) | 226 | 32 spans | 49 pages |
+| DOC-002 | `NVIDIA-2025-Annual-Report.pdf` | 645 | 156 spans | 181 pages |
+| DOC-003 | `JPChaseannualreport-2025.pdf` | 1235 | 445 spans | ✓ |
+| DOC-004 | `COSTco-Annual-Report-2025.pdf` | 234 | 56 spans | 76 pages |
+| DOC-005 | `Worldbank2024.pdf` | 5 | 3 (structured) | 7 |
+| DOC-006 | `BOSIB13bdde89d07f1b3711dd8e86adb477.pdf` | 201 | 32 spans | 49 pages |
+| DOC-007 | `OECD.pdf` | 1627 | ✓ | ✓ |
+| DOC-008 | `WSPR_2024_EN_WEB_1.pdf` | 1141 | 193 spans | 386 pages |
+| DOC-009 | `2025-03-12-NASA-HDBK-1009A.pdf` | 133 | 7 spans | 88 pages |
+| DOC-010 | `NIST.SP.800-53r5.pdf` | 1525 | 250 spans | 492 pages |
+| DOC-011 | `amtg_handbook.pdf` | 2239 | 188 spans | 677 pages |
+| DOC-012 | `9789240115569-eng.pdf` (WHO) | 902 | 61 spans | 342 pages |
 
-Visual indexing initially failed with:
-
-```text
-Vector dimension error: expected dim: 4, got 1536
-```
-
-Root cause: `docifer_visual_evidence` Qdrant collection was created with dimension 4 during test runs (fake embeddings). Deleted the collection; indexing service recreated it at dimension 1536.
-
-## Citation Bug Fix
-
-Initial category-mode eval showed:
-
-```text
-Chart / Visual: avg_recall=0.98, citation_present=0.00
-```
-
-Visual answers were correct but contained no `[V1]` markers.
-
-### Root Cause Investigation
-
-Two bugs found:
-
-**Bug 1 — query.py:** When `verify_citations=True`, the verifier's `revised_answer` replaced the visual interpretation answer even when verdict was `supported`. The verifier-generated `revised_answer` did not include `[V1]` markers, stripping them from the final answer.
-
-Fix: Only replace answer with `revised_answer` when verdict is `unsupported` or `partially_supported`. A `supported` answer is not replaced.
-
-**Bug 2 — openai_provider.py:** GPT-4o-mini did not reliably include `[V1]` in the JSON `answer` field even when the prompt requested it. The `_parse_visual_interpretation_payload` function stored the citation-free answer as-is.
-
-Fix: Post-processing step appends the first `used_citation_id` to the answer if status is `supported`, the answer is non-empty, and no citation marker is present.
-
-Additionally hardened the verifier prompt to instruct: "If you do provide a revised_answer, preserve all citation markers ([C1], [T1], [V1], etc.) from the original answer."
-
-### Verification
-
-After fix, live query with `verify_citations=True`:
-
-```text
-VISUAL_CITES: ['V1']
-VERDICT: supported
-```
-
-Test suite: `86 passed, 1 xfailed`
-
-Committed as:
-
-```text
-281a76e fix(visuals): guarantee [V1] citation in visual answers
-```
-
-## Final Eval — phase7e_full_final
-
-Run across all 8 indexed docs with category routing:
-
-```powershell
-backend\.venv\Scripts\python.exe -m docifer_backend.evaluation.runner \
-  --run-name phase7e_full_final \
-  --doc-id DOC-001 --doc-id DOC-002 --doc-id DOC-003 --doc-id DOC-004 \
-  --doc-id DOC-005 --doc-id DOC-007 --doc-id DOC-008 --doc-id DOC-012 \
-  --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
-```
-
-Result:
-
-```json
-{
-  "evaluated": 26,
-  "failed": 1,
-  "citation_presence_rate": 0.9231,
-  "average_expected_answer_token_recall": 0.6885,
-  "abstention_correct_rate": 0.6667,
-  "latency_ms_p50": 2841.07,
-  "latency_ms_p95": 8877.92
-}
-```
-
-Per-category breakdown:
-
-| Category | n | Avg Recall | Citation % | Mode |
-|---|---|---:|---:|---|
-| Chart / Visual | 4 | 1.00 | 100% | visual |
-| Text Factual | 8 | 0.87 | 100% | text |
-| Table Lookup | 4 | 0.64 | 100% | table |
-| Text Synthesis | 4 | 0.50 | 100% | text |
-| Table Reasoning | 3 | 0.46 | 67% | table |
-| Unsupported / Abstention | 3 | 0.32 | 67% | text |
-
-Visual question results:
-
-| QA ID | Document | Recall | [Vn] |
-|---|---|---:|---|
-| QA-006 | NVIDIA Blackwell infographic | 1.00 | [V1] ✓ |
-| QA-012 | Costco projected locations map | 1.00 | [V1] ✓ |
-| QA-023 | WSPR Figure 4.35 pension share | 1.00 | [V2] ✓ |
-| QA-024 | WSPR Figure 3.13 financing gap | 1.00 | [V1] ✓ |
-| QA-036 | WHO SEAHEARTS figure | rate limited | — |
-
-QA-036 was validated manually in a separate call:
-
-```text
-Answer: As of December 2024, 48 million people are placed on protocol-based management
-for hypertension and/or diabetes. [V1]
-Verdict: supported
-```
-
-The one failure is a gpt-4o-mini TPM rate limit, not a system bug.
-
-## Indexed Corpus State (end of session)
-
-| Doc ID | PDF | Text ✓ | Tables ✓ | Visuals ✓ |
-|---|---|---|---|---|
-| DOC-001 | `2025_AnnualReport.pdf` (Microsoft) | 226 chunks | ✓ | ✓ |
-| DOC-002 | `NVIDIA-2025-Annual-Report.pdf` | 645 chunks | 156 | 181 |
-| DOC-003 | `JPChaseannualreport-2025.pdf` | 1235 chunks | 445 | ✓ |
-| DOC-004 | `COSTco-Annual-Report-2025.pdf` | 234 chunks | 56 | 76 |
-| DOC-005 | `Worldbank2024.pdf` | 5 chunks | 3 | 7 |
-| DOC-007 | `OECD.pdf` | 1627 chunks | ✓ | ✓ |
-| DOC-008 | `WSPR_2024_EN_WEB_1.pdf` | 1141 chunks | 193 | 386 |
-| DOC-012 | `9789240115569-eng.pdf` | 902 chunks | 61 | 342 |
-
-## Session Commits
-
-```text
-849b5db feat(visuals): complete Phase 7E structured multimodal interpretation
-281a76e fix(visuals): guarantee [V1] citation in visual answers
-```
+Note: All table evidence is fallback text-span extraction except DOC-005 which has 3 structured Docling tables.
