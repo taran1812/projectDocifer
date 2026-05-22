@@ -118,3 +118,26 @@ def test_resolve_evidence_mode_routes_visual_and_table_categories():
     assert resolve_evidence_mode(table_question) == "table"
     assert resolve_evidence_mode(text_question) == "text"
     assert resolve_evidence_mode(visual_question, requested="auto") == "auto"
+
+
+from docifer_backend.evaluation.metrics import _detect_abstention
+
+
+def test_detect_abstention_contraction_dont():
+    assert _detect_abstention("I don't have enough evidence to answer this.") is True
+
+
+def test_detect_abstention_contraction_cant():
+    assert _detect_abstention("I can't determine the answer from the evidence.") is True
+
+
+def test_detect_abstention_contraction_cannot_determine():
+    assert _detect_abstention("I cannot determine the GPA from the retrieved content.") is True
+
+
+def test_detect_abstention_does_not_trigger_on_normal_answer():
+    assert _detect_abstention("The revenue was $130.5 billion. [C1]") is False
+
+
+def test_detect_abstention_do_not_have_still_works():
+    assert _detect_abstention("I do not have enough evidence to answer.") is True

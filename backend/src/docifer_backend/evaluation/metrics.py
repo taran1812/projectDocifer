@@ -9,8 +9,14 @@ from docifer_backend.evaluation.dataset import GoldenQuestion
 
 ABSTENTION_MARKERS = (
     "do not have enough evidence",
+    "don't have enough evidence",
+    "do not have sufficient evidence",
+    "don't have sufficient evidence",
     "insufficient evidence",
     "cannot answer",
+    "can't answer",
+    "cannot determine",
+    "can't determine",
     "not enough evidence",
     "does not include",
     "does not provide",
@@ -20,6 +26,8 @@ ABSTENTION_MARKERS = (
     "not include",
     "not mention",
     "not provided in the evidence",
+    "i don't have",
+    "i do not have",
 )
 
 
@@ -77,7 +85,16 @@ def score_answer(
 
 def _detect_abstention(answer: str) -> bool:
     lowered = answer.lower()
-    return any(marker in lowered for marker in ABSTENTION_MARKERS)
+    normalised = (
+        lowered
+        .replace("don't", "do not")
+        .replace("can't", "cannot")
+        .replace("isn't", "is not")
+        .replace("doesn't", "does not")
+        .replace("won't", "will not")
+        .replace("couldn't", "could not")
+    )
+    return any(marker in normalised for marker in ABSTENTION_MARKERS)
 
 
 def _tokens(text: str) -> list[str]:
