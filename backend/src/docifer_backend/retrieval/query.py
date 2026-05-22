@@ -271,7 +271,10 @@ class TextQueryService:
                     citation_verification.revised_answer
                     or "I do not have enough evidence from the indexed document to answer."
                 )
-            elif citation_verification.revised_answer:
+            elif (
+                citation_verification.verdict == "partially_supported"
+                and citation_verification.revised_answer
+            ):
                 answer = citation_verification.revised_answer
 
         cited_ids = _extract_citation_ids(answer)

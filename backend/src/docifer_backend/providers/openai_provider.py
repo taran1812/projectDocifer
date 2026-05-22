@@ -98,7 +98,9 @@ class OpenAIProvider:
                 "verdict, supported_citation_ids, weak_citation_ids, "
                 "unsupported_claims, reasoning, revised_answer. Verdict must be "
                 "supported, partially_supported, or unsupported. If revision is "
-                "not needed, revised_answer must be null."
+                "not needed, revised_answer must be null. If you do provide a "
+                "revised_answer, preserve all citation markers ([C1], [T1], [V1], "
+                "etc.) from the original answer."
             ),
             input=(
                 f"Question:\n{question}\n\n"
@@ -338,6 +340,8 @@ def _parse_visual_interpretation_payload(
                 f"I cannot determine this from the retrieved visual evidence because {abstain_reason}"
                 + (f" [{used[0]}]" if used else "")
             )
+    elif status == "supported" and used and not any(f"[{cid}]" in answer for cid in used):
+        answer = f"{answer} [{used[0]}]"
     return VisualInterpretationResult(
         status=status,
         answer=answer,
