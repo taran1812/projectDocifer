@@ -28,6 +28,11 @@ ABSTENTION_MARKERS = (
     "not provided in the evidence",
     "i don't have",
     "i do not have",
+    "cannot help",
+    "can't help",
+    "unable to",
+    "cannot provide",
+    "can't provide",
 )
 
 
