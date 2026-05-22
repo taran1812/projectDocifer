@@ -57,6 +57,7 @@ def create_database_schema() -> None:
     import docifer_backend.ingestion.models  # noqa: F401
     import docifer_backend.retrieval.models  # noqa: F401
     import docifer_backend.retrieval.tables.models  # noqa: F401
+    import docifer_backend.retrieval.visuals.models  # noqa: F401
     import docifer_backend.audit.models  # noqa: F401
 
     Base.metadata.create_all(bind=get_database_engine())
