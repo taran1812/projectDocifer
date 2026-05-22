@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from docifer_backend.config.settings import Settings
 from docifer_backend.retrieval.visuals.models import DocumentVisualIndexRun, VisualEvidenceRecord
 from docifer_backend.storage.database import Base
 
@@ -72,6 +73,14 @@ def test_document_visual_index_run_persists(session_factory):
         loaded = session.scalar(select(DocumentVisualIndexRun))
         assert loaded.status == "indexed"
         assert loaded.visual_record_count == 13
+
+
+def test_default_visual_collection_name():
+    settings = Settings(
+        database_url="postgresql://u:p@localhost/db",
+        qdrant_url="http://localhost:6333",
+    )
+    assert settings.qdrant_visual_collection == "docifer_visual_evidence"
 
 
 from qdrant_client import QdrantClient
@@ -596,6 +605,8 @@ def test_visual_retrieve_request_defaults():
 def test_visual_candidate_response_schema():
     candidate = VisualCandidateResponse(
         visual_id="abc:picture:0001",
+        document_id="doc-1",
+        content_hash="c" * 64,
         score=0.85,
         dense_score=0.80,
         lexical_score=0.90,
@@ -616,3 +627,90 @@ def test_visual_candidate_response_schema():
         source_artifact_path="datasets/processed/abc/job/canonical.json",
     )
     assert candidate.visual_type == "docling_picture"
+
+
+# API Endpoint Tests
+from fastapi.testclient import TestClient
+from docifer_backend.main import create_app
+
+
+class FakeVisualIndexingService:
+    def index_canonical_document(self, canonical_path, *, force_reindex=False):
+        from docifer_backend.retrieval.visuals.schemas import VisualIndexOutcome
+        return VisualIndexOutcome(
+            document_id="doc-1",
+            content_hash="c" * 64,
+            status="indexed",
+            page_render_count=5,
+            figure_candidate_count=2,
+            visual_record_count=7,
+            collection_name="docifer_visual_evidence",
+            reused_existing=False,
+        )
+
+
+class FakeVisualRetriever:
+    def search(self, *, query, top_k, content_hash=None, retrieval_mode="visual_hybrid"):
+        from docifer_backend.retrieval.visuals.schemas import VisualQueryResult
+        return [
+        VisualQueryResult(
+            visual_id="abc:picture:0000",
+                score=0.9,
+                dense_score=0.85,
+                lexical_score=0.95,
+                hybrid_score=0.9,
+                retrieval_mode="visual_hybrid",
+                visual_type="docling_picture",
+                source_kind="docling_picture",
+                page_start=3,
+                page_end=3,
+                artifact_path="datasets/processed/abc/job/visuals/pages/page_0003.jpg",
+                caption="Figure 1: Key findings",
+                section_heading="Results",
+                nearby_text="The chart shows...",
+                figure_label="Figure 1",
+                visual_readiness="good",
+                document_id="doc-1",
+                content_hash="c" * 64,
+                filename="sample.pdf",
+                source_path="datasets/raw_pdfs/sample.pdf",
+                source_artifact_path="datasets/processed/abc/job/canonical.json",
+            )
+        ]
+
+
+def test_index_visuals_endpoint(monkeypatch):
+    import docifer_backend.api.retrieval as retrieval_module
+    monkeypatch.setattr(retrieval_module, "VisualIndexingService", lambda: FakeVisualIndexingService())
+
+    app = create_app()
+    client = TestClient(app)
+    response = client.post(
+        "/index/visuals",
+        json={"canonical_path": "datasets/processed/abc/job/canonical.json"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "indexed"
+    assert data["page_render_count"] == 5
+    assert data["visual_record_count"] == 7
+
+
+def test_retrieve_visuals_endpoint(monkeypatch):
+    import docifer_backend.api.retrieval as retrieval_module
+    monkeypatch.setattr(retrieval_module, "VisualRetriever", lambda: FakeVisualRetriever())
+
+    app = create_app()
+    client = TestClient(app)
+    response = client.post(
+        "/retrieve/visuals",
+        json={"question": "Which figure shows the key findings?", "top_k": 3},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["candidates"]) == 1
+    assert data["candidates"][0]["visual_type"] == "docling_picture"
+    assert data["candidates"][0]["document_id"] == "doc-1"
+    assert data["candidates"][0]["content_hash"] == "c" * 64
+    assert data["candidates"][0]["artifact_path"] is not None
+    assert "debug" in data

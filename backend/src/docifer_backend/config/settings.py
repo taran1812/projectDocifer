@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
 
-    database_url: str = "postgresql://docifer_user:docifer_password@localhost:5432/docifer"
+    database_url: str = "postgresql+psycopg://docifer_user:docifer_password@localhost:5432/docifer"
 
     qdrant_url: str = "http://localhost:6333"
 

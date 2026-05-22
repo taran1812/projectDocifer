@@ -3,6 +3,8 @@ from fastapi import APIRouter
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.query import TextQueryService
 from docifer_backend.retrieval.tables.indexing import TableIndexingService
+from docifer_backend.retrieval.visuals.indexing import VisualIndexingService
+from docifer_backend.retrieval.visuals.retriever import VisualRetriever
 from docifer_backend.schemas.retrieval import (
     CitationResponse,
     EvidenceResponse,
@@ -15,6 +17,11 @@ from docifer_backend.schemas.retrieval import (
     TableIndexResponse,
     TextIndexRequest,
     TextIndexResponse,
+    VisualCandidateResponse,
+    VisualIndexRequest,
+    VisualIndexResponse,
+    VisualRetrieveRequest,
+    VisualRetrieveResponse,
 )
 
 router = APIRouter(tags=["retrieval"])
@@ -143,3 +150,65 @@ def _table_evidence_responses(
             )
         )
     return responses
+
+
+@router.post("/index/visuals", response_model=VisualIndexResponse)
+def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
+    outcome = VisualIndexingService().index_canonical_document(
+        request.canonical_path,
+        force_reindex=request.force_reindex,
+    )
+    return VisualIndexResponse(**outcome.__dict__)
+
+
+@router.post("/retrieve/visuals", response_model=VisualRetrieveResponse)
+def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResponse:
+    retriever = VisualRetriever()
+    results = retriever.search(
+        query=request.question,
+        top_k=request.top_k,
+        content_hash=request.content_hash,
+        retrieval_mode=request.retrieval_mode,
+    )
+    candidates = [
+        VisualCandidateResponse(
+            visual_id=result.visual_id,
+            document_id=result.document_id,
+            content_hash=result.content_hash,
+            score=result.score,
+            dense_score=result.dense_score,
+            lexical_score=result.lexical_score,
+            hybrid_score=result.hybrid_score,
+            retrieval_mode=result.retrieval_mode,
+            visual_type=result.visual_type,
+            source_kind=result.source_kind,
+            page_start=result.page_start,
+            page_end=result.page_end,
+            artifact_path=result.artifact_path,
+            caption=result.caption,
+            section_heading=result.section_heading,
+            nearby_text=result.nearby_text,
+            figure_label=result.figure_label,
+            visual_readiness=result.visual_readiness,
+            filename=result.filename,
+            source_path=result.source_path,
+            source_artifact_path=result.source_artifact_path,
+        )
+        for result in results
+    ]
+    debug: dict = {}
+    if request.debug:
+        debug = {
+            "retrieved_count": len(results),
+            "retrieval_mode": request.retrieval_mode,
+            "scores": [
+                {
+                    "visual_id": r.visual_id,
+                    "dense_score": r.dense_score,
+                    "lexical_score": r.lexical_score,
+                    "hybrid_score": r.hybrid_score,
+                }
+                for r in results
+            ],
+        }
+    return VisualRetrieveResponse(candidates=candidates, debug=debug)

@@ -157,6 +157,8 @@ class VisualRetrieveRequest(BaseModel):
 
 class VisualCandidateResponse(BaseModel):
     visual_id: str
+    document_id: str
+    content_hash: str
     score: float
     dense_score: float | None = None
     lexical_score: float | None = None
@@ -179,4 +181,4 @@ class VisualCandidateResponse(BaseModel):
 
 class VisualRetrieveResponse(BaseModel):
     candidates: list[VisualCandidateResponse]
-    debug: dict = {}
+    debug: dict = Field(default_factory=dict)

@@ -2468,3 +2468,210 @@ docs/session-changes-2026-05-20.md
 Phase 7C is complete and valid for the benchmark-driven table reasoning target.
 
 It is still intentionally not a full spreadsheet analytics engine or SQL-over-tables layer. It is a narrow, inspectable table observation layer for retrieved evidence.
+
+---
+
+# Phase 7D Changes - Visual Evidence Retrieval
+
+Phase 7D adds retrieval-only visual evidence support. The system now finds relevant rendered pages, Docling picture records, and fallback figure references without attempting multimodal image interpretation.
+
+## Phase 7D Configuration
+
+Updated:
+
+```text
+backend/src/docifer_backend/config/settings.py
+.env.example
+```
+
+Added:
+
+```text
+QDRANT_VISUAL_COLLECTION=docifer_visual_evidence
+```
+
+The default database URL was also aligned with the installed PostgreSQL driver:
+
+```text
+postgresql+psycopg://docifer_user:docifer_password@localhost:5432/docifer
+```
+
+## Phase 7D Data Model
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/visuals/models.py
+```
+
+New tables:
+
+- `visual_evidence_records`
+- `document_visual_index_runs`
+
+`create_database_schema()` now registers the visual models.
+
+## Phase 7D Rendering And Extraction
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/visuals/rendering.py
+backend/src/docifer_backend/retrieval/visuals/extraction.py
+backend/src/docifer_backend/retrieval/visuals/schemas.py
+```
+
+Implemented:
+
+- PDF page rendering to JPEG via `pypdfium2`,
+- first-class `page_render` evidence records,
+- `docling_picture` evidence from Docling picture metadata,
+- fallback `figure_candidate` records from text references like Figure, Chart, Diagram, and Exhibit,
+- visual metadata formatting for embedding and BM25 retrieval.
+
+Rendered artifacts are written under:
+
+```text
+datasets/processed/<hash-prefix>/<job-id>/visuals/pages/page_0001.jpg
+```
+
+## Phase 7D Indexing And Retrieval
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/visuals/indexing.py
+backend/src/docifer_backend/retrieval/visuals/retriever.py
+```
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/vector_store.py
+```
+
+Implemented:
+
+- `VisualIndexingService.index_canonical_document(...)`,
+- idempotent visual index runs,
+- forced reindex cleanup of stale visual records and Qdrant points,
+- Qdrant upsert/search/delete helpers for `docifer_visual_evidence`,
+- retrieval modes `visual_dense`, `visual_bm25`, and `visual_hybrid`,
+- score diagnostics: `dense_score`, `lexical_score`, and `hybrid_score`.
+
+## Phase 7D API
+
+Updated:
+
+```text
+backend/src/docifer_backend/api/retrieval.py
+backend/src/docifer_backend/schemas/retrieval.py
+```
+
+New endpoints:
+
+```text
+POST /index/visuals
+POST /retrieve/visuals
+```
+
+`/retrieve/visuals` returns visual candidates only. It does not generate an answer and does not interpret the image.
+
+Candidate responses include:
+
+- `visual_id`
+- `document_id`
+- `content_hash`
+- `visual_type`
+- `source_kind`
+- `artifact_path`
+- page metadata
+- caption, figure label, section heading, and nearby text when available
+- dense, lexical, and hybrid scores
+
+## Phase 7D Documentation
+
+Added:
+
+```text
+docs/phase7d-visual-evidence-retrieval.md
+```
+
+Updated:
+
+```text
+backend/README.md
+evals/README.md
+docs/session-changes-2026-05-20.md
+```
+
+## Phase 7D Tests
+
+Added and updated:
+
+```text
+backend/tests/test_visual_retrieval.py
+backend/tests/test_visual_schemas.py
+```
+
+Coverage includes:
+
+- visual settings,
+- visual dataclasses and API schemas,
+- SQL model persistence,
+- Qdrant visual upsert/search/delete,
+- PDF page rendering,
+- Docling picture extraction,
+- page-render evidence records,
+- fallback figure candidates,
+- visual indexing idempotency,
+- dense/BM25/hybrid visual retrieval,
+- `/index/visuals`,
+- `/retrieve/visuals`.
+
+The one-off `backend/tests/test_visual_settings.py` file was consolidated into `backend/tests/test_visual_retrieval.py`.
+
+## Phase 7D Validation
+
+Visual-focused suite:
+
+```text
+22 passed
+```
+
+Full backend suite:
+
+```text
+78 passed, 1 xfailed
+```
+
+Compile check:
+
+```text
+python -m compileall backend/src/docifer_backend backend/tests
+```
+
+Real local validation was run against the existing World Bank canonical artifact:
+
+```text
+datasets/processed/8109582811fe/55e8b2a2-0406-4aed-8a9e-da81ef6ef0ff/canonical.json
+```
+
+Result:
+
+- `status = indexed`
+- `page_render_count = 4`
+- `figure_candidate_count = 0`
+- `visual_record_count = 7`
+- `collection_name = docifer_visual_evidence`
+- retrieved 5 visual candidates for `Which figure shows economic growth?`
+- returned candidates included `page_render` and `docling_picture` records
+- all returned candidate `artifact_path` values pointed to existing rendered JPEG files
+
+The real validation used a fake embedding provider to avoid external API calls while still exercising real PDF rendering, SQL persistence, Qdrant indexing, and visual retrieval.
+
+## Phase 7D Gate Status
+
+Phase 7D is complete as a retrieval-only visual evidence baseline.
+
+It intentionally does not interpret charts or figures yet. The next visual phase can add multimodal interpretation on top of these retrieved, inspectable visual candidates.

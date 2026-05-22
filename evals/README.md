@@ -52,3 +52,17 @@ The successful Phase 7C validation returns:
 - selected observation `Commercial & Investment Bank`,
 - selected value `$27,761 million`,
 - verifier verdict `supported`.
+
+## Phase 7D visual retrieval checks
+
+Phase 7D validates visual retrieval before multimodal interpretation. The current checks focus on whether the system can render page artifacts, persist visual evidence records, index them into `docifer_visual_evidence`, and retrieve relevant candidates for chart/figure/page questions.
+
+Expected `/retrieve/visuals` behavior:
+
+- returns visual candidates, not generated answers,
+- includes `artifact_path` values that point to rendered page JPEGs,
+- separates dense, BM25 lexical, and hybrid scores,
+- exposes source metadata such as `document_id`, `content_hash`, source path, canonical artifact path, page range, caption, figure label, and nearby text,
+- supports `visual_dense`, `visual_bm25`, and `visual_hybrid` retrieval modes.
+
+Phase 7D is complete when a real parsed PDF can be visually indexed and queried through the API with inspectable rendered artifacts in `datasets/processed/<hash>/<job>/visuals/pages/`.

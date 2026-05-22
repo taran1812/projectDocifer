@@ -31,6 +31,8 @@ Running the same PDF again without `--force` reuses the existing successful job 
 - `GET /ingestion/jobs/{job_id}`
 - `POST /index/text`
 - `POST /index/tables`
+- `POST /index/visuals`
+- `POST /retrieve/visuals`
 - `POST /query`
 
 Example request body:
@@ -226,4 +228,47 @@ Detailed notes are in:
 
 ```text
 docs/phase7c-table-reasoning.md
+```
+
+## Phase 7D visual evidence retrieval
+
+Phase 7D adds retrieval-only visual evidence support. PDFs are rendered into inspectable JPEG page artifacts, and visual evidence records are indexed into a dedicated Qdrant collection:
+
+```text
+docifer_visual_evidence
+```
+
+Visual evidence types:
+
+- `page_render`: one rendered page JPEG per PDF page
+- `docling_picture`: Docling picture metadata linked to the rendered source page
+- `figure_candidate`: text-detected figure/chart references when structured pictures are unavailable
+
+Index visual evidence for a parsed document:
+
+```json
+{
+  "canonical_path": "datasets/processed/8109582811fe/55e8b2a2-0406-4aed-8a9e-da81ef6ef0ff/canonical.json",
+  "force_reindex": false
+}
+```
+
+Retrieve visual candidates without image interpretation:
+
+```json
+{
+  "question": "Which figure shows economic growth?",
+  "content_hash": "8109582811fe1ec5812a857c9f5d1f3112771b3ce2c810c1161e3303193ea3a8",
+  "top_k": 5,
+  "retrieval_mode": "visual_hybrid",
+  "debug": true
+}
+```
+
+`/retrieve/visuals` returns candidate visual records with artifact paths, page metadata, captions or nearby text, and `dense_score`, `lexical_score`, and `hybrid_score`. Phase 7D deliberately does not perform multimodal interpretation.
+
+Detailed notes are in:
+
+```text
+docs/phase7d-visual-evidence-retrieval.md
 ```
