@@ -162,3 +162,34 @@ def test_delete_visual_evidence_by_content_hash():
         content_hash="c" * 64,
     )
     assert results == []
+
+
+from docifer_backend.retrieval.visuals.rendering import render_pdf_pages
+
+
+def test_render_pdf_pages_creates_jpegs(tmp_path):
+    import pypdfium2 as pdfium
+
+    # Create a minimal valid PDF with 3 pages using pypdfium2
+    pdf = pdfium.PdfDocument.new()
+    for _ in range(3):
+        page = pdf.new_page(595, 842)
+        page.close()
+    pdf_path = tmp_path / "test.pdf"
+    pdf.save(str(pdf_path))
+    pdf.close()
+
+    output_dir = tmp_path / "pages"
+    results = render_pdf_pages(pdf_path, output_dir, scale=0.5)
+
+    assert len(results) == 3
+    for page_number, jpeg_path in results:
+        assert jpeg_path.exists()
+        assert jpeg_path.suffix == ".jpg"
+        assert jpeg_path.stat().st_size > 0
+
+    page_numbers = [r[0] for r in results]
+    assert page_numbers == [1, 2, 3]
+    assert (output_dir / "page_0001.jpg").exists()
+    assert (output_dir / "page_0002.jpg").exists()
+    assert (output_dir / "page_0003.jpg").exists()
