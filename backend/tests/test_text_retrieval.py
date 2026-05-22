@@ -287,3 +287,150 @@ def _fake_embedding(text: str) -> list[float]:
         1.0 if "innovation" in lower else 0.0,
         1.0,
     ]
+
+
+def _seed_index(provider, session_factory, qdrant_client, canonical_path, content_hash=None, source_path=None):
+    """Create Document row and index a canonical artifact so queries have evidence."""
+    if content_hash and source_path:
+        with session_factory() as session:
+            session.add(
+                Document(
+                    filename="sample.pdf",
+                    source_path=source_path,
+                    content_hash=content_hash,
+                    file_size_bytes=100,
+                )
+            )
+            session.commit()
+    TextIndexingService(
+        session_factory=session_factory,
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        collection_name="test_text_chunks",
+        initialize_schema=False,
+    ).index_canonical_document(str(canonical_path))
+
+
+def test_query_abstention_retry_fires_when_initial_answer_abstains(session_factory, tmp_path):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    client = QdrantClient(":memory:")
+    call_log = []
+
+    class AbstainFirstProvider(FakeAIProvider):
+        def generate_grounded_answer(self, *, question, evidence):
+            call_log.append(len(evidence))
+            if len(call_log) == 1:
+                return "I do not have enough evidence to answer this question."
+            return f"Based on the retrieved evidence, the answer is X. [{evidence[0].citation_id}]"
+
+    provider = AbstainFirstProvider()
+    _seed_index(provider, session_factory, client, canonical_path, content_hash, source_path)
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="What is the answer?",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="dense",
+        evidence_mode="text",
+    )
+
+    assert len(call_log) == 2, "generate_grounded_answer should be called twice"
+    assert outcome.debug["abstention_retry_triggered"] is True
+    assert outcome.debug["initial_answer_was_abstention"] is True
+    assert outcome.debug["retry_answer_was_abstention"] is False
+    assert outcome.debug["initial_top_k"] == 2
+    assert outcome.debug["retry_top_k"] == 4
+    assert "I do not have enough evidence" not in outcome.answer
+
+
+def test_query_abstention_retry_does_not_fire_without_retrieved_evidence(session_factory, tmp_path):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    client = QdrantClient(":memory:")
+    call_log = []
+
+    class AlwaysAbstainProvider(FakeAIProvider):
+        def generate_grounded_answer(self, *, question, evidence):
+            call_log.append(1)
+            return "I do not have enough evidence to answer."
+
+    provider = AlwaysAbstainProvider()
+    # Do NOT seed index — empty collection → no evidence retrieved
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="What is the answer?",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="dense",
+        evidence_mode="text",
+    )
+
+    assert outcome.debug["abstention_retry_triggered"] is False
+    assert len(call_log) == 0  # early return path, no generate call
+
+
+def test_query_abstention_retry_does_not_fire_in_visual_mode(session_factory, tmp_path):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    client = QdrantClient(":memory:")
+    call_log = []
+
+    class AbstainProvider(FakeAIProvider):
+        def generate_grounded_answer(self, *, question, evidence):
+            call_log.append(1)
+            return "I do not have enough evidence."
+
+    provider = AbstainProvider()
+    _seed_index(provider, session_factory, client, canonical_path, content_hash, source_path)
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="What chart is shown?",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="dense",
+        evidence_mode="visual",
+    )
+
+    assert outcome.debug["abstention_retry_triggered"] is False
+
+
+def test_query_debug_has_retry_fields_when_no_retry(session_factory, tmp_path):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    client = QdrantClient(":memory:")
+    provider = FakeAIProvider()
+    _seed_index(provider, session_factory, client, canonical_path, content_hash, source_path)
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="What strategy is recommended?",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="dense",
+        evidence_mode="text",
+    )
+
+    assert "abstention_retry_triggered" in outcome.debug
+    assert "initial_top_k" in outcome.debug
+    assert "retry_top_k" in outcome.debug
+    assert "initial_answer_was_abstention" in outcome.debug
+    assert "retry_answer_was_abstention" in outcome.debug
+    assert outcome.debug["abstention_retry_triggered"] is False
+    assert outcome.debug["retry_top_k"] is None
+    assert outcome.debug["retry_answer_was_abstention"] is None

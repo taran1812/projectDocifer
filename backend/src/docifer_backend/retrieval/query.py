@@ -41,6 +41,28 @@ from docifer_backend.storage.database import get_session_factory
 from docifer_backend.storage.qdrant import get_qdrant_client
 
 
+_ABSTENTION_MARKERS = (
+    "do not have enough evidence",
+    "don't have enough evidence",
+    "insufficient evidence",
+    "cannot answer",
+    "cannot determine",
+    "not enough evidence",
+    "i do not have",
+    "i don't have",
+)
+
+
+def _is_abstention(answer: str) -> bool:
+    normalised = (
+        answer.lower()
+        .replace("don't", "do not")
+        .replace("can't", "cannot")
+        .replace("doesn't", "does not")
+    )
+    return any(m in normalised for m in _ABSTENTION_MARKERS)
+
+
 @dataclass(frozen=True)
 class QueryCitation:
     citation_id: str
@@ -222,6 +244,15 @@ class TextQueryService:
                 if evidence_mode == "visual"
                 else "I do not have enough evidence from the indexed document to answer."
             )
+            debug.update(
+                {
+                    "abstention_retry_triggered": False,
+                    "initial_top_k": top_k,
+                    "retry_top_k": None,
+                    "initial_answer_was_abstention": False,
+                    "retry_answer_was_abstention": None,
+                }
+            )
             return QueryOutcome(
                 answer=answer,
                 citations=[],
@@ -252,6 +283,12 @@ class TextQueryService:
         visual_grounding = visual_observations_to_grounding_evidence(visual_interpretation)
         grounding.extend(visual_grounding)
 
+        # --- Initial answer generation ---
+        initial_answer_was_abstention = False
+        abstention_retry_triggered = False
+        retry_top_k: int | None = None
+        retry_answer_was_abstention: bool | None = None
+
         if should_retrieve_visuals and visual_interpretation is not None:
             answer = visual_interpretation.answer
         else:
@@ -259,6 +296,41 @@ class TextQueryService:
                 question=question,
                 evidence=grounding,
             )
+
+        # --- Abstention-triggered evidence expansion retry ---
+        initial_answer_was_abstention = _is_abstention(answer)
+        if (
+            initial_answer_was_abstention
+            and should_retrieve_text
+            and len(retrieved) > 0
+            and evidence_mode in {"text", "auto"}
+        ):
+            retry_top_k = min(top_k * 2, 8)
+            retry_retrieved = self._retrieve(
+                question=question,
+                content_hash=content_hash,
+                top_k=retry_top_k,
+                retrieval_mode=retrieval_mode,
+            )
+            abstention_retry_triggered = True
+            retry_grounding = [
+                GroundingEvidence(
+                    citation_id=f"C{index}",
+                    text=chunk.text,
+                    source=_format_source(chunk),
+                )
+                for index, chunk in enumerate(retry_retrieved, start=1)
+            ]
+            retry_grounding.extend(_table_grounding_evidence(table_results, table_reasoning))
+            retry_grounding.extend(visual_grounding)
+            answer = self.ai_provider.generate_grounded_answer(
+                question=question,
+                evidence=retry_grounding,
+            )
+            retry_answer_was_abstention = _is_abstention(answer)
+            retrieved = retry_retrieved
+            grounding = retry_grounding
+
         citation_verification = None
         if verify_citations:
             citation_verification = self.ai_provider.verify_citation_grounding(
@@ -310,6 +382,11 @@ class TextQueryService:
                     if citation_verification is not None
                     else None
                 ),
+                "abstention_retry_triggered": abstention_retry_triggered,
+                "initial_top_k": top_k,
+                "retry_top_k": retry_top_k,
+                "initial_answer_was_abstention": initial_answer_was_abstention,
+                "retry_answer_was_abstention": retry_answer_was_abstention,
             }
         )
 
@@ -339,13 +416,18 @@ class TextQueryService:
     ) -> list[RetrievedChunk]:
         if retrieval_mode == "dense":
             query_vector = self.ai_provider.embed_texts([question])[0]
-            return search_text_chunks(
-                self.qdrant_client,
-                collection_name=self.collection_name,
-                query_vector=query_vector,
-                top_k=top_k,
-                content_hash=content_hash,
-            )
+            try:
+                return search_text_chunks(
+                    self.qdrant_client,
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    top_k=top_k,
+                    content_hash=content_hash,
+                )
+            except (ValueError, Exception) as exc:
+                if "not found" in str(exc).lower() or "collection" in str(exc).lower():
+                    return []
+                raise
         if retrieval_mode == "bm25":
             return self.bm25_retriever.search(
                 query=question,
