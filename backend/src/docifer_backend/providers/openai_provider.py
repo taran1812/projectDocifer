@@ -51,7 +51,10 @@ class OpenAIProvider:
                 "You are Docifer's grounded document QA system. Answer only from the "
                 "provided evidence. Cite every factual claim with citation IDs "
                 "like [C1] or [T1]. If the evidence is insufficient, say you do not "
-                "have enough evidence from the indexed document."
+                "have enough evidence from the indexed document. When a computed "
+                "table observation is provided, use it as the preferred table fact "
+                "and cite only the table ID that supports that observation unless "
+                "another citation is necessary."
             ),
             input=(
                 f"Question:\n{question}\n\n"

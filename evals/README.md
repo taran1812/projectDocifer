@@ -33,4 +33,22 @@ Validated configuration:
 }
 ```
 
-The successful Phase 7B validation returns a table citation from the JPMorgan fallback table span on page 340 and a supported citation-grounding verdict.
+The successful Phase 7B validation returns table citations from the JPMorgan fallback table evidence and a supported citation-grounding verdict.
+
+## Phase 7C table reasoning checks
+
+Phase 7C keeps the same gate question but adds deterministic observation extraction before answer generation.
+
+Expected result:
+
+```text
+Commercial & Investment Bank had the highest 2025 net income at $27,761 million.
+```
+
+The successful Phase 7C validation returns:
+
+- one table citation,
+- `table_reasoning_status = supported`,
+- selected observation `Commercial & Investment Bank`,
+- selected value `$27,761 million`,
+- verifier verdict `supported`.

@@ -249,6 +249,8 @@ def _record_to_result(
         source_path=record.source_path,
         source_artifact_path=record.source_artifact_path,
         source_chunk_id=record.source_chunk_id,
+        title=record.title,
+        caption=record.caption,
     )
 
 
@@ -344,6 +346,8 @@ def _merge_table_hybrid_results(
                 source_path=result.source_path,
                 source_artifact_path=result.source_artifact_path,
                 source_chunk_id=result.source_chunk_id,
+                title=result.title,
+                caption=result.caption,
             )
         )
     merged.sort(key=lambda result: result.score, reverse=True)

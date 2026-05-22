@@ -13,10 +13,12 @@ from docifer_backend.providers.base import AIProvider, CitationGroundingVerdict,
 from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import BM25Retriever
 from docifer_backend.retrieval.hybrid import merge_hybrid_results
+from docifer_backend.retrieval.tables.reasoning import reason_over_table_evidence
 from docifer_backend.retrieval.tables.retriever import TableRetriever
 from docifer_backend.retrieval.tables.schemas import (
     TableCitation,
     TableQueryResult,
+    TableReasoningResult,
     format_table_evidence_for_embedding,
 )
 from docifer_backend.retrieval.vector_store import RetrievedChunk, search_text_chunks
@@ -108,6 +110,7 @@ class TextQueryService:
 
         table_retrieval_latency_ms = None
         table_results: list[TableQueryResult] = []
+        table_reasoning: TableReasoningResult | None = None
         if should_retrieve_tables:
             start = time.perf_counter()
             table_results = self.table_retriever.search(
@@ -117,6 +120,11 @@ class TextQueryService:
                 retrieval_mode="table_hybrid",
             )
             table_retrieval_latency_ms = int((time.perf_counter() - start) * 1000)
+            if table_results:
+                table_reasoning = reason_over_table_evidence(
+                    question=question,
+                    tables=table_results,
+                )
 
         debug = {
             "collection_name": self.collection_name,
@@ -134,6 +142,9 @@ class TextQueryService:
             "table_intent_detected": table_intent["detected"],
             "table_intent_score": table_intent["score"],
             "table_intent_matches": table_intent["matches"],
+            "table_reasoning_used": table_reasoning is not None,
+            "table_reasoning_status": table_reasoning.status if table_reasoning else None,
+            "table_reasoning": asdict(table_reasoning) if table_reasoning else None,
             "content_hash_scope": "specific" if content_hash else "all",
         }
 
@@ -164,12 +175,7 @@ class TextQueryService:
             for index, chunk in enumerate(retrieved, start=1)
         ]
         grounding.extend(
-            GroundingEvidence(
-                citation_id=f"T{index}",
-                text=format_table_evidence_for_embedding(table),
-                source=_format_table_source(table),
-            )
-            for index, table in enumerate(table_results, start=1)
+            _table_grounding_evidence(table_results, table_reasoning)
         )
         answer = self.ai_provider.generate_grounded_answer(
             question=question,
@@ -293,6 +299,41 @@ def _format_table_source(table: TableQueryResult) -> str:
     else:
         page_label = "page unknown"
     return f"table:{table.table_id}, {table.filename}, {page_label}"
+
+
+def _table_grounding_evidence(
+    table_results: list[TableQueryResult],
+    table_reasoning: TableReasoningResult | None,
+) -> list[GroundingEvidence]:
+    if (
+        table_reasoning
+        and table_reasoning.status == "supported"
+        and table_reasoning.selected_observation
+        and table_reasoning.reasoning_text
+    ):
+        selected_index = table_reasoning.selected_observation.evidence_index
+        selected_table = table_results[selected_index - 1] if 0 < selected_index <= len(table_results) else None
+        if selected_table is not None:
+            return [
+                GroundingEvidence(
+                    citation_id=table_reasoning.selected_observation.citation_id,
+                    text=(
+                        f"{table_reasoning.reasoning_text}\n\n"
+                        "Supporting table evidence:\n"
+                        f"{format_table_evidence_for_embedding(selected_table)}"
+                    ),
+                    source=_format_table_source(selected_table),
+                )
+            ]
+
+    return [
+        GroundingEvidence(
+            citation_id=f"T{index}",
+            text=format_table_evidence_for_embedding(table),
+            source=_format_table_source(table),
+        )
+        for index, table in enumerate(table_results, start=1)
+    ]
 
 
 def _extract_citation_ids(answer: str) -> set[str]:

@@ -70,6 +70,8 @@ class TableQueryResult:
     source_path: str
     source_artifact_path: str
     source_chunk_id: str | None
+    title: str | None = None
+    caption: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,40 @@ class TableCitation:
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+
+
+@dataclass(frozen=True)
+class TableQuestionIntent:
+    metric: str | None
+    year: int | None
+    operation: str
+    entity_hint: str | None
+    matches: list[str]
+
+
+@dataclass(frozen=True)
+class TableObservation:
+    label: str
+    metric: str
+    year: int | None
+    value: float
+    display_value: str
+    unit: str | None
+    table_id: str
+    citation_id: str
+    evidence_index: int
+    row_text: str
+
+
+@dataclass(frozen=True)
+class TableReasoningResult:
+    status: str
+    intent: TableQuestionIntent
+    observations: list[TableObservation]
+    selected_observation: TableObservation | None
+    used_table_ids: list[str]
+    used_citation_ids: list[str]
+    reasoning_text: str | None
 
 
 def format_table_evidence_for_embedding(table: TableEvidence | TableQueryResult) -> str:

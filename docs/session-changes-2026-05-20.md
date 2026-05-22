@@ -2330,3 +2330,141 @@ with 2 table citations and verifier verdict `supported`.
 Phase 7B is complete and valid as a table retrieval and evidence-packaging phase.
 
 It improves retrieval for table QA, but does not yet implement deterministic table computation or SQL-style analytics. That remains deferred to a later reasoning phase.
+
+---
+
+# Phase 7C Changes - Table Reasoning
+
+Phase 7C added a lightweight deterministic reasoning layer after table retrieval and before grounded answer generation.
+
+## Phase 7C Reasoning Module
+
+Added:
+
+```text
+backend/src/docifer_backend/retrieval/tables/reasoning.py
+```
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/tables/schemas.py
+backend/src/docifer_backend/retrieval/tables/retriever.py
+```
+
+New dataclasses:
+
+- `TableQuestionIntent`
+- `TableObservation`
+- `TableReasoningResult`
+
+Implemented:
+
+- metric/year/operation/entity intent parsing,
+- numeric parsing for currency, percentages, commas, and parenthesized negatives,
+- structured table reasoning over headers and rows,
+- fallback table-like text reasoning over segment/year/metric matrix spans,
+- segment-specific candidate filtering so segment questions do not accidentally select whole-firm totals,
+- unit inference that prefers explicit `in millions` / `in billions` table context.
+
+## Phase 7C Query Integration
+
+Updated:
+
+```text
+backend/src/docifer_backend/retrieval/query.py
+backend/src/docifer_backend/providers/openai_provider.py
+```
+
+Behavior:
+
+- table retrieval runs as in Phase 7B,
+- retrieved tables are passed into the Phase 7C reasoner,
+- when reasoning is supported, answer generation receives the computed table observation and only the selected supporting table evidence,
+- citation verification uses the same selected table evidence,
+- debug includes `table_reasoning_used`, `table_reasoning_status`, and full `table_reasoning` details.
+
+This reduced the validated JPMorgan answer from multiple table citations to one selected table citation.
+
+## Phase 7C Tests
+
+Updated:
+
+```text
+backend/tests/test_table_retrieval.py
+```
+
+Added coverage for:
+
+- question intent parsing,
+- numeric value parsing,
+- structured table reasoning using caption metric context,
+- fallback JPMorgan-style segment matrix reasoning,
+- ignoring whole-firm totals when a segment-level answer is requested,
+- `/query` table reasoning debug and selected citation behavior.
+
+Full suite validation:
+
+```text
+56 passed, 1 xfailed
+```
+
+Compile check also passed:
+
+```text
+python -m compileall backend/src/docifer_backend backend/tests
+```
+
+## Phase 7C Real Validation
+
+The FastAPI server was restarted with the Phase 7C code and validated through HTTP `POST /query`.
+
+Table mode request:
+
+```json
+{
+  "question": "Which segment had the highest 2025 net income?",
+  "content_hash": "2a3ee9733eafd01e7667c5540fbd797c4cc688d14f00638a877f5623d1316d9d",
+  "evidence_mode": "table",
+  "table_top_k": 4,
+  "verify_citations": true
+}
+```
+
+Validated result:
+
+```text
+Commercial & Investment Bank had the highest 2025 net income at $27,761 million. [T3]
+```
+
+Returned:
+
+- `table_citation_count = 1`
+- `table_reasoning_status = supported`
+- `selected_label = Commercial & Investment Bank`
+- `selected_value = $27,761 million`
+- `citation_verification.verdict = supported`
+
+Auto mode with `retrieval_mode="hybrid"` was also validated and returned the same selected observation with a supported verifier verdict.
+
+## Phase 7C Documentation
+
+Added:
+
+```text
+docs/phase7c-table-reasoning.md
+```
+
+Updated:
+
+```text
+backend/README.md
+evals/README.md
+docs/session-changes-2026-05-20.md
+```
+
+## Phase 7C Gate Status
+
+Phase 7C is complete and valid for the benchmark-driven table reasoning target.
+
+It is still intentionally not a full spreadsheet analytics engine or SQL-over-tables layer. It is a narrow, inspectable table observation layer for retrieved evidence.

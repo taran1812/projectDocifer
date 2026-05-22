@@ -197,3 +197,33 @@ Ask a table-only question:
 - `evidence_mode="auto"`: text retrieval plus table retrieval when table intent is detected
 
 Table evidence responses are returned separately as `table_evidence`, `table_citations`, and `unused_table_evidence`.
+
+## Phase 7C table reasoning
+
+Phase 7C adds deterministic table observations between table retrieval and answer generation. For supported table questions, `/query` now extracts the metric, year, operation, and candidate values from retrieved table evidence before the LLM writes the final answer.
+
+The public request shape is unchanged from Phase 7B. The debug payload includes:
+
+```text
+table_reasoning_used
+table_reasoning_status
+table_reasoning
+```
+
+Validated target question:
+
+```text
+Which segment had the highest 2025 net income?
+```
+
+Validated answer:
+
+```text
+Commercial & Investment Bank had the highest 2025 net income at $27,761 million.
+```
+
+Detailed notes are in:
+
+```text
+docs/phase7c-table-reasoning.md
+```
