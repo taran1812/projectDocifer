@@ -2889,6 +2889,164 @@ It is ready for live validation with an OpenAI vision-capable model and indexed 
 
 ---
 
+# Phase 7G — Abstention + Retry Hardening (2026-05-22)
+
+## Baseline
+
+Run: `phase7f_full_40q`
+
+```json
+{
+  "evaluated": 40,
+  "abstention_correct_rate": 0.375,
+  "citation_presence_rate": 0.925,
+  "average_expected_answer_token_recall": 0.647,
+  "failed": 1
+}
+```
+
+The 1 hard failure was a gpt-4o-mini 429 rate-limit error on QA-036.
+
+## Fixes Implemented
+
+### Fix 1 — Contraction Detection (metrics.py)
+
+Expanded `ABSTENTION_MARKERS` with contraction forms and added contraction normalisation before marker scan in `_detect_abstention`. Previously "don't have enough evidence", "can't determine", etc. were not detected.
+
+Added markers: `don't have enough evidence`, `don't have sufficient evidence`, `can't answer`, `can't determine`, `i don't have`, `i do not have`, `cannot help`, `can't help`, `unable to`, `cannot provide`, `can't provide`.
+
+Normalisation: `don't → do not`, `can't → cannot`, `isn't → is not`, `doesn't → does not`, `won't → will not`, `couldn't → could not`.
+
+Commit: `bb40d51`
+
+### Fix 2 — Mixed Modality Routing Priority (runner.py)
+
+`resolve_evidence_mode` previously checked visual/chart/figure terms before checking `"mixed" in category`. Mixed Modality questions whose `expected_evidence_type` contained "visual" were incorrectly routed to `visual` mode instead of `auto`.
+
+Fixed priority order: mixed → visual → table → text.
+
+QA-027 and QA-033 now correctly route to `auto` mode.
+
+Commit: `5e52194`
+
+### Fix 3 — Abstention Threshold in Answer Prompt (openai_provider.py)
+
+Updated `generate_grounded_answer` instructions with explicit abstention rules:
+
+- Abstain ONLY when evidence has no direct support, contradicts itself, or is missing the key entity/metric.
+- Do NOT abstain merely because evidence is incomplete or partial.
+- If evidence supports a partial answer, answer only the supported part and cite it.
+- When partial, use cautious wording: "Based on the retrieved evidence...", "The document states...".
+
+Commit: `730f23a`
+
+### Fix 4 — Rate-Limit Retry/Backoff (providers/base.py, openai_provider.py, runner.py)
+
+Added `ProviderRateLimitError` exception class to `base.py`.
+
+Added `_is_rate_limit_error` and `_with_openai_retry` to `openai_provider.py`. Retry strategy: up to 2 retries, backoff `2^(attempt+1) ± 0.5s` (roughly 2s then 4s). Raises `ProviderRateLimitError` after max retries.
+
+Wrapped all 3 API call sites: `generate_grounded_answer`, `verify_citation_grounding`, `interpret_visual_evidence`.
+
+Evaluation runner catches `ProviderRateLimitError` and marks result `status="provider_failed"` instead of `"failed"`.
+
+Commit: `730f23a`
+
+### Fix 5 — Abstention-Triggered Evidence Expansion Retry (query.py)
+
+When initial answer abstains AND text evidence was retrieved AND `evidence_mode` is text or auto:
+
+- Retry with `retry_top_k = min(top_k * 2, 8)`
+- Re-call `generate_grounded_answer` with expanded evidence
+- One retry only
+
+Debug fields added: `abstention_retry_triggered`, `initial_top_k`, `retry_top_k`, `initial_answer_was_abstention`, `retry_answer_was_abstention`.
+
+Also added graceful handling of Qdrant collection-not-found error in `_retrieve` — returns empty list instead of raising.
+
+Commit: `9697f48`
+
+## Phase 7G Test Coverage
+
+Tests after Phase 7G: **103 passed, 1 xfailed**
+
+New tests:
+- 5 contraction detection tests
+- 3 routing priority tests
+- 5 retry/backoff tests
+- 4 abstention retry tests
+
+## Full 40-Question Eval — phase7g_full_40q
+
+```json
+{
+  "evaluated": 40,
+  "failed": 0,
+  "abstention_correct_rate": 0.2857,
+  "citation_presence_rate": 0.925,
+  "average_expected_answer_token_recall": 0.6246,
+  "latency_ms_p50": 3194.55,
+  "latency_ms_p95": 14887.55
+}
+```
+
+Per-category:
+
+| Category | n | Avg Recall | Citation % |
+|---|---|---:|---:|
+| Chart / Visual | 5 | 0.89 | 100% |
+| Text Factual | 14 | 0.83 | 100% |
+| Mixed Modality | 2 | 0.60 | 100% |
+| Text Synthesis | 6 | 0.43 | 100% |
+| Table Lookup | 5 | 0.46 | 80% |
+| Table Reasoning | 4 | 0.34 | 50% |
+| Unsupported / Abstention | 4 | 0.37 | 100% |
+
+## Abstention Analysis
+
+| QA | Should abstain | Detected | Correct | Notes |
+|---|---|---|---|---|
+| QA-017 | No | Yes | ❌ | Table mode retrieval failure |
+| QA-031 | No | Yes | ❌ | Partial answer contains "does not include" → false positive |
+| QA-032 | No | Yes | ❌ | Table mode retrieval failure |
+| QA-037 | Yes | No | ❌ | "I can't help provide..." not detected |
+| QA-038 | Yes | Yes | ✅ | |
+| QA-039 | Yes | Yes | ✅ | Contraction fix worked |
+| QA-040 | Yes | No | ❌ | Prompt change too aggressive → model answered instead of abstaining |
+
+## What Improved vs What Regressed
+
+**Improved:**
+- QA-039: contraction fix correctly scores abstention ✅
+- QA-026: no longer false-abstaining ✅
+- QA-027, QA-033: Mixed Modality now routed to `auto` ✅
+- Zero hard eval failures (rate-limit retry works) ✅
+
+**Regressed:**
+- QA-040: prompt change caused model to answer with partial evidence when golden expects abstention
+- QA-017, QA-032: table-mode retrieval failures — text retry does not cover table mode
+- QA-031: valid partial answer triggers "does not include" → false positive in abstention detection
+
+## Root Causes Remaining
+
+1. **Table retrieval failure** — QA-017, QA-032: BOSIB doc and AMTG handbook table questions return 0 results. Not a prompt issue; retrieval depth or chunk coverage issue.
+2. **Abstention/answer trade-off** — QA-040: the prompt change is working but over-corrects. Needs a separate "expected_unsupported" flag or two-stage verifier to distinguish "no evidence" from "evidence says topic doesn't exist."
+3. **False positive detection** — QA-031: partial answers with limiting phrases ("does not include the full text") are incorrectly counted as abstentions.
+
+## Phase 7G Commits
+
+```text
+bb40d51 fix(eval): expand abstention detection to cover contractions
+45e638a fix(eval): move _detect_abstention import to top of test file
+5e52194 fix(eval): prioritise mixed-modality routing before visual-term check
+730f23a feat(providers): add rate-limit retry/backoff and raise abstention bar in answer prompt
+2c70d9b fix(providers): restore max_output_tokens on vision call, move imports to top
+9697f48 feat(retrieval): add abstention-triggered evidence expansion retry
+8292ab8 fix(eval): add cannot-help and unable-to abstention markers
+```
+
+---
+
 # Phase 7E Live Validation and Corpus Expansion (2026-05-22)
 
 ## Server Restart
