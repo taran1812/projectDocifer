@@ -92,3 +92,88 @@ def test_openai_provider_interpret_visual_evidence_abstains_without_artifact():
     assert result.status == "abstained"
     assert "No readable visual artifacts" in result.abstain_reason
     assert result.used_citation_ids == ["V1"]
+
+
+import pytest
+from unittest.mock import patch
+from docifer_backend.providers.base import ProviderRateLimitError
+from docifer_backend.providers.openai_provider import _with_openai_retry
+
+
+def test_with_openai_retry_succeeds_on_first_attempt():
+    call_count = 0
+
+    def fn():
+        nonlocal call_count
+        call_count += 1
+        return "ok"
+
+    result = _with_openai_retry(fn)
+    assert result == "ok"
+    assert call_count == 1
+
+
+def test_with_openai_retry_retries_on_rate_limit_then_succeeds():
+    call_count = 0
+
+    class FakeRateLimitError(Exception):
+        pass
+
+    def fn():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise FakeRateLimitError("rate limit")
+        return "ok"
+
+    with patch("docifer_backend.providers.openai_provider._is_rate_limit_error", return_value=True):
+        with patch("time.sleep"):
+            result = _with_openai_retry(fn, max_retries=2)
+
+    assert result == "ok"
+    assert call_count == 3
+
+
+def test_with_openai_retry_raises_provider_rate_limit_error_after_max_retries():
+    class FakeRateLimitError(Exception):
+        pass
+
+    def fn():
+        raise FakeRateLimitError("rate limit")
+
+    with patch("docifer_backend.providers.openai_provider._is_rate_limit_error", return_value=True):
+        with patch("time.sleep"):
+            with pytest.raises(ProviderRateLimitError):
+                _with_openai_retry(fn, max_retries=2)
+
+
+def test_with_openai_retry_does_not_retry_non_rate_limit_errors():
+    call_count = 0
+
+    def fn():
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("something else")
+
+    with pytest.raises(ValueError):
+        _with_openai_retry(fn)
+    assert call_count == 1
+
+
+def test_with_openai_retry_backoff_timing():
+    sleep_calls = []
+
+    class FakeRateLimitError(Exception):
+        pass
+
+    def fn():
+        raise FakeRateLimitError("rate limit")
+
+    with patch("docifer_backend.providers.openai_provider._is_rate_limit_error", return_value=True):
+        with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+            with pytest.raises(ProviderRateLimitError):
+                _with_openai_retry(fn, max_retries=2)
+
+    assert len(sleep_calls) == 2
+    assert 1.5 <= sleep_calls[0] <= 2.5   # 2^1 ± 0.5
+    assert 3.5 <= sleep_calls[1] <= 4.5   # 2^2 ± 0.5

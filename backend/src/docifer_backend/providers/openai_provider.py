@@ -2,15 +2,36 @@ from docifer_backend.config.settings import get_settings
 from docifer_backend.config.paths import resolve_project_path
 import json
 import base64
+import random
+import time
 from pathlib import Path
 
 from docifer_backend.providers.base import (
     CitationGroundingVerdict,
     GroundingEvidence,
+    ProviderRateLimitError,
     VisualEvidenceInput,
     VisualInterpretationResult,
     VisualObservation,
 )
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "rate limit" in msg or "429" in msg
+
+
+def _with_openai_retry(fn, max_retries: int = 2):
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_rate_limit_error(exc):
+                raise
+            if attempt == max_retries:
+                raise ProviderRateLimitError(str(exc)) from exc
+            sleep = (2 ** (attempt + 1)) + random.uniform(-0.5, 0.5)
+            time.sleep(max(0, sleep))
 
 
 class OpenAIProvider:
@@ -56,18 +77,26 @@ class OpenAIProvider:
         evidence: list[GroundingEvidence],
     ) -> str:
         evidence_text = _format_evidence_sections(evidence)
-        response = self.client.responses.create(
+        response = _with_openai_retry(lambda: self.client.responses.create(
             model=self.answer_model,
             instructions=(
                 "You are Docifer's grounded document QA system. Answer only from the "
                 "provided evidence. Cite every factual claim with citation IDs "
-                "like [C1], [T1], or [V1]. If the evidence is insufficient, say you do not "
-                "have enough evidence from the indexed document. When a computed "
-                "table observation is provided, use it as the preferred table fact "
-                "and cite only the table ID that supports that observation unless "
-                "another citation is necessary. When a visual observation is provided, "
-                "cite only the visual ID that supports the visible claim and do not "
-                "invent unreadable chart values."
+                "like [C1], [T1], or [V1].\n\n"
+                "Abstention rules:\n"
+                "- Abstain ONLY when the retrieved evidence has no direct support for "
+                "the question, contradicts itself, or is missing the key entity or "
+                "metric needed to answer.\n"
+                "- Do NOT abstain merely because the evidence is incomplete or partial.\n"
+                "- If the evidence supports a partial but useful answer, answer only "
+                "the supported part and cite it.\n"
+                "- When evidence is partial, use cautious wording: "
+                "'Based on the retrieved evidence...', 'The document states...', or "
+                "'The available evidence indicates...'.\n"
+                "- When a computed table observation is provided, use it as the preferred "
+                "table fact and cite only the table ID that supports that observation.\n"
+                "- When a visual observation is provided, cite only the visual ID that "
+                "supports the visible claim and do not invent unreadable chart values."
             ),
             input=(
                 f"Question:\n{question}\n\n"
@@ -75,7 +104,7 @@ class OpenAIProvider:
                 "Write a concise grounded answer."
             ),
             max_output_tokens=500,
-        )
+        ))
 
         output_text = getattr(response, "output_text", None)
         if output_text:
@@ -90,7 +119,7 @@ class OpenAIProvider:
         evidence: list[GroundingEvidence],
     ) -> CitationGroundingVerdict:
         evidence_text = _format_evidence_sections(evidence)
-        response = self.client.responses.create(
+        response = _with_openai_retry(lambda: self.client.responses.create(
             model=self.answer_model,
             instructions=(
                 "You are Docifer's citation-grounding verifier. Compare the "
@@ -109,7 +138,7 @@ class OpenAIProvider:
                 "Verify whether the answer's cited claims are semantically supported."
             ),
             max_output_tokens=700,
-        )
+        ))
 
         output_text = (getattr(response, "output_text", None) or "").strip()
         try:
@@ -166,7 +195,7 @@ class OpenAIProvider:
                 visual_evidence,
             )
 
-        response = self.client.responses.create(
+        response = _with_openai_retry(lambda: self.client.responses.create(
             model=self.vision_model,
             instructions=(
                 "You are Docifer's narrow visual evidence interpreter. Read only "
@@ -184,8 +213,7 @@ class OpenAIProvider:
                     "schema": _VISUAL_INTERPRETATION_SCHEMA,
                 }
             },
-            max_output_tokens=900,
-        )
+        ))
 
         output_text = (getattr(response, "output_text", None) or "").strip()
         try:

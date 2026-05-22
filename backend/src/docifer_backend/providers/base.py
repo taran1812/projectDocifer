@@ -82,3 +82,7 @@ class AIProvider(Protocol):
         visual_evidence: list[VisualEvidenceInput],
     ) -> VisualInterpretationResult:
         ...
+
+
+class ProviderRateLimitError(Exception):
+    """Raised when a provider rate limit is exceeded after all retries."""

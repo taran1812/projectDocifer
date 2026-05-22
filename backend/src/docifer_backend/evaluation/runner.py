@@ -20,6 +20,7 @@ from docifer_backend.evaluation.reporting import (
     write_markdown_report,
 )
 from docifer_backend.observability.langsmith import evaluation_trace
+from docifer_backend.providers.base import ProviderRateLimitError
 
 
 @dataclass
@@ -259,6 +260,20 @@ class EvaluationRunner:
                     }
                 )
                 return result
+        except ProviderRateLimitError as exc:
+            return EvaluationResult(
+                qa_id=question.qa_id,
+                doc_id=question.doc_id,
+                category=question.category,
+                question=question.question,
+                expected_answer=question.expected_answer,
+                should_abstain=question.should_abstain,
+                status="provider_failed",
+                error_message=str(exc),
+                latency_ms=round((time.perf_counter() - started) * 1000, 2),
+                content_hash=doc_ref.content_hash,
+                evidence_mode=resolved_evidence_mode,
+            )
         except Exception as exc:
             return EvaluationResult(
                 qa_id=question.qa_id,
