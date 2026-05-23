@@ -33,3 +33,6 @@ dev = [
 [tool.pytest.ini_options]
 tmp_path_retention_policy = "failed"
 pythonpath = ["src"]
+markers = [
+    "integration: tests that require real Postgres and Qdrant services (set RUN_INTEGRATION_TESTS=true)",
+]
