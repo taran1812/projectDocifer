@@ -514,3 +514,42 @@ Detailed endpoint and validation notes are in:
 ```text
 docs/phase10-document-registry-apis.md
 ```
+
+## Phase 11 real Postgres/Qdrant integration tests
+
+Phase 11 adds opt-in integration tests that run against real Postgres and Qdrant services. All existing unit tests remain mocked and fast.
+
+Tests live in `backend/tests/integration/` and are skipped by default unless the environment variable `RUN_INTEGRATION_TESTS=true` is set.
+
+**What is tested:**
+
+| Module | Tests |
+|--------|-------|
+| `test_postgres_schema.py` | All six ORM tables exist; Document insert/select round-trip |
+| `test_qdrant_collections.py` | Collection creation, vector size, payload index registration |
+| `test_text_indexing_integration.py` | TextIndexingService creates chunk records, Qdrant points carry `document_id`, dense search retrieves indexed chunks |
+| `test_table_indexing_integration.py` | TableIndexingService creates evidence records, Qdrant points carry `document_id`, zero-table documents return `no_table_evidence` status |
+| `test_visual_indexing_integration.py` | VisualIndexingService creates page-render records via real pypdfium2, Qdrant points carry `document_id`, zero-page documents return `no_visual_evidence` status |
+| `test_query_integration.py` | TextQueryService end-to-end retrieval produces a non-empty answer; single-scope query filters by content hash |
+| `test_document_registry_integration.py` | DocumentRegistryService `list_documents`, `get_document`, `get_by_content_hash`, `get_indexes`, not-found error |
+| `test_fastapi_smoke.py` | HTTP-layer smoke: `/health`, `/ready`, `GET /documents`, `GET /documents/{id}`, 404 handling |
+
+**Environment variables:**
+
+| Variable | Default |
+|----------|---------|
+| `RUN_INTEGRATION_TESTS` | `false` (set `true` to run) |
+| `DOCIFER_TEST_DATABASE_URL` | `postgresql+psycopg://docifer:docifer@localhost:5432/docifer_test` |
+| `DOCIFER_TEST_QDRANT_URL` | `http://localhost:6333` |
+| `DOCIFER_TEST_QDRANT_COLLECTION_PREFIX` | `test_docifer_` |
+
+The test suite uses a `FakeIntegrationProvider` with deterministic SHA-256-seeded 16-dimensional embeddings — no real OpenAI calls. All Postgres tables are dropped and recreated from scratch at session start. All Qdrant test collections are cleared before and after the test run.
+
+Run integration tests:
+
+```powershell
+$env:RUN_INTEGRATION_TESTS = "true"
+backend\.venv\Scripts\pytest.exe backend\tests\integration -v
+```
+
+Safety guards prevent accidental runs against production databases: the Postgres fixture asserts `"test" in url` before running any `DROP TABLE`.
