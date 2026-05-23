@@ -11,7 +11,7 @@ from docifer_backend.retrieval.tables.indexing import (
 )
 from docifer_backend.retrieval.tables.models import TableEvidenceRecord
 
-from conftest import (
+from helpers import (
     TABLE_COLLECTION,
     TABLE_CONTENT_HASH,
     DOCLING_TABLE,
@@ -23,6 +23,17 @@ from conftest import (
 pytestmark = pytest.mark.integration
 
 _NO_TABLE_HASH = "9" * 63 + "0"
+
+
+def _cleanup(pg_session_factory, content_hash):
+    with pg_session_factory() as session:
+        doc = session.scalar(select(Document).where(Document.content_hash == content_hash))
+        if doc:
+            try:
+                session.delete(doc)
+                session.commit()
+            except Exception:
+                session.rollback()
 
 
 @pytest.fixture(scope="module")
@@ -40,11 +51,7 @@ def table_canonical(tmp_path_factory, pg_session_factory):
         ))
         session.commit()
     yield path
-    with pg_session_factory() as session:
-        doc = session.scalar(select(Document).where(Document.content_hash == TABLE_CONTENT_HASH))
-        if doc:
-            session.delete(doc)
-            session.commit()
+    _cleanup(pg_session_factory, TABLE_CONTENT_HASH)
 
 
 @pytest.fixture(scope="module")
@@ -62,11 +69,7 @@ def no_table_canonical(tmp_path_factory, pg_session_factory):
         ))
         session.commit()
     yield path
-    with pg_session_factory() as session:
-        doc = session.scalar(select(Document).where(Document.content_hash == _NO_TABLE_HASH))
-        if doc:
-            session.delete(doc)
-            session.commit()
+    _cleanup(pg_session_factory, _NO_TABLE_HASH)
 
 
 def _make_svc(pg_session_factory, qdrant_client, fake_provider):
@@ -86,7 +89,7 @@ def test_table_indexing_creates_evidence_records(
         table_canonical, force_reindex=True
     )
     assert outcome.status == TABLE_INDEX_STATUS_INDEXED
-    assert outcome.table_count >= 1
+    assert outcome.table_evidence_count >= 1
 
     with pg_session_factory() as session:
         rows = list(session.scalars(
@@ -122,4 +125,4 @@ def test_table_zero_evidence_returns_no_evidence_status(
         no_table_canonical, force_reindex=True
     )
     assert outcome.status == TABLE_INDEX_STATUS_NO_EVIDENCE
-    assert outcome.table_count == 0
+    assert outcome.table_evidence_count == 0

@@ -7,7 +7,7 @@ from docifer_backend.ingestion.models import Document
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.query import TextQueryService
 
-from conftest import (
+from helpers import (
     TEXT_COLLECTION,
     TABLE_COLLECTION,
     VISUAL_COLLECTION,
@@ -44,8 +44,11 @@ def query_canonical(tmp_path_factory, pg_session_factory, qdrant_client, fake_pr
     with pg_session_factory() as session:
         doc = session.scalar(select(Document).where(Document.content_hash == QUERY_HASH_A))
         if doc:
-            session.delete(doc)
-            session.commit()
+            try:
+                session.delete(doc)
+                session.commit()
+            except Exception:
+                session.rollback()
 
 
 def _make_svc(pg_session_factory, qdrant_client, fake_provider):

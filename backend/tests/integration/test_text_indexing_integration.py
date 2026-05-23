@@ -8,7 +8,7 @@ from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.models import TextChunkRecord
 from docifer_backend.retrieval.vector_store import search_text_chunks
 
-from conftest import (
+from helpers import (
     TEXT_COLLECTION,
     TEXT_CONTENT_HASH,
     DOCLING_TEXT,
@@ -39,8 +39,11 @@ def text_canonical(tmp_path_factory, pg_session_factory):
             select(Document).where(Document.content_hash == TEXT_CONTENT_HASH)
         )
         if doc:
-            session.delete(doc)
-            session.commit()
+            try:
+                session.delete(doc)
+                session.commit()
+            except Exception:
+                session.rollback()
 
 
 def _make_svc(pg_session_factory, qdrant_client, fake_provider):

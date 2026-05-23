@@ -8,7 +8,7 @@ from docifer_backend.retrieval.vector_store import (
 )
 from docifer_backend.storage.qdrant import get_vector_collection_stats
 
-from conftest import TEXT_COLLECTION, TABLE_COLLECTION, TEST_EMBED_DIM
+from helpers import TEXT_COLLECTION, TABLE_COLLECTION, TEST_EMBED_DIM
 
 
 pytestmark = pytest.mark.integration

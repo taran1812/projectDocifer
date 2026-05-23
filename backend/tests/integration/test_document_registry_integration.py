@@ -9,7 +9,7 @@ from docifer_backend.documents.service import (
     DocumentRegistryNotFoundError,
 )
 
-from conftest import REGISTRY_HASH
+from helpers import REGISTRY_HASH
 
 
 pytestmark = pytest.mark.integration

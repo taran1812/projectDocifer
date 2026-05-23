@@ -11,7 +11,7 @@ from docifer_backend.retrieval.visuals.indexing import (
 )
 from docifer_backend.retrieval.visuals.models import VisualEvidenceRecord
 
-from conftest import (
+from helpers import (
     VISUAL_COLLECTION,
     VISUAL_CONTENT_HASH,
     DOCLING_VISUAL,
@@ -42,8 +42,11 @@ def visual_canonical(tmp_path_factory, pg_session_factory):
     with pg_session_factory() as session:
         doc = session.scalar(select(Document).where(Document.content_hash == VISUAL_CONTENT_HASH))
         if doc:
-            session.delete(doc)
-            session.commit()
+            try:
+                session.delete(doc)
+                session.commit()
+            except Exception:
+                session.rollback()
 
 
 @pytest.fixture(scope="module")
@@ -64,8 +67,11 @@ def zero_page_canonical(tmp_path_factory, pg_session_factory):
     with pg_session_factory() as session:
         doc = session.scalar(select(Document).where(Document.content_hash == _ZERO_PAGE_HASH))
         if doc:
-            session.delete(doc)
-            session.commit()
+            try:
+                session.delete(doc)
+                session.commit()
+            except Exception:
+                session.rollback()
 
 
 def _make_svc(pg_session_factory, qdrant_client, fake_provider):
