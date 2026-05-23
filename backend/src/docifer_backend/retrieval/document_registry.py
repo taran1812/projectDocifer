@@ -28,6 +28,10 @@ LOCAL_CORPUS_FILENAMES = {
 }
 
 
+class AmbiguousDocumentIdentityError(ValueError):
+    """Raised when a public corpus identifier maps to multiple documents."""
+
+
 @dataclass(frozen=True)
 class QueryDocumentRef:
     doc_id: str | None
@@ -130,16 +134,30 @@ class DocumentScopeResolver:
                 filename = LOCAL_CORPUS_FILENAMES.get(doc_id)
                 if filename is None:
                     raise ValueError(f"Unknown doc_id: {doc_id}")
-                document = session.scalar(
-                    select(Document).where(Document.filename == filename)
-                )
-                if document is None:
-                    document = session.scalar(
-                        select(Document).where(Document.source_path.like(f"%{filename}"))
+                documents = list(
+                    session.scalars(
+                        select(Document).where(
+                            func.lower(Document.filename) == filename.lower()
+                        )
                     )
-                if document is None:
+                )
+                if not documents:
+                    documents = list(
+                        session.scalars(
+                            select(Document).where(
+                                func.lower(Document.source_path).like(
+                                    f"%{filename.lower()}"
+                                )
+                            )
+                        )
+                    )
+                if not documents:
                     raise ValueError(f"Document is not ingested for doc_id: {doc_id}")
-                selected.append(self._to_ref(document, doc_id=doc_id))
+                if len(documents) > 1:
+                    raise AmbiguousDocumentIdentityError(
+                        f"Multiple documents are mapped to doc_id: {doc_id}"
+                    )
+                selected.append(self._to_ref(documents[0], doc_id=doc_id))
 
             for document_id in document_ids or []:
                 document = session.scalar(
@@ -190,7 +208,7 @@ class DocumentScopeResolver:
 
     def _to_ref(self, document: Document, *, doc_id: str | None = None) -> QueryDocumentRef:
         return QueryDocumentRef(
-            doc_id=doc_id or _external_doc_id(document),
+            doc_id=doc_id or doc_id_for_document(document),
             document_id=document.id,
             content_hash=document.content_hash,
             filename=document.filename,
@@ -198,7 +216,7 @@ class DocumentScopeResolver:
         )
 
 
-def _external_doc_id(document: Document) -> str | None:
+def doc_id_for_document(document: Document) -> str | None:
     filename = document.filename.lower()
     source_path = document.source_path.lower()
     for doc_id, expected_filename in LOCAL_CORPUS_FILENAMES.items():

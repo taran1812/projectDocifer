@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from docifer_backend.api.documents import router as documents_router
 from docifer_backend.api.health import router as health_router
 from docifer_backend.api.ingestion import router as ingestion_router
 from docifer_backend.api.retrieval import router as retrieval_router
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
     app.include_router(ingestion_router)
     app.include_router(retrieval_router)
     app.include_router(vector_router)
+    app.include_router(documents_router)
 
     return app
 

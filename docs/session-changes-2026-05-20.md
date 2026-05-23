@@ -3553,3 +3553,75 @@ Supported live question combined `DOC-005` World Bank `1i`/`2i`/`3i` evidence wi
 | `all` | 12 | 2 | 50 | `supported` |
 
 Phase 9 is code-complete, test-valid, and live corpus validated for selected-document and corpus-wide text querying.
+
+---
+
+# Phase 10 - Document Registry and Index Status APIs
+
+## Implemented Changes
+
+- Added a typed document registry service in `backend/src/docifer_backend/documents/service.py`.
+- Reused the Phase 9 corpus identity mapping by exposing `doc_id_for_document`
+  from `backend/src/docifer_backend/retrieval/document_registry.py`.
+- Added public response models in `backend/src/docifer_backend/schemas/documents.py`.
+- Added the `/documents` router with:
+  - `GET /documents`
+  - `GET /documents/{document_id}`
+  - `GET /documents/by-doc-id/{doc_id}`
+  - `GET /documents/by-content-hash/{content_hash}`
+  - `GET /documents/{document_id}/indexes`
+  - `GET /documents/{document_id}/audit`
+  - `GET /documents/{document_id}/artifacts`
+- Added explicit modality statuses: `indexed`, `not_indexed`,
+  `not_available`, `failed`, and `unknown`.
+- Added artifact existence and provenance output for ingestion, audit, and
+  visual records.
+- Hardened the shared public-ID resolver to reject ambiguous case-insensitive
+  filename mappings rather than silently selecting one document.
+- Added service and API tests for identity reuse, zero-evidence status
+  semantics, audit output, artifacts, endpoint behavior, lookup route
+  ordering, and not-found conversion.
+- Added `docs/phase10-document-registry-apis.md` and the Phase 10 design and
+  implementation plan documents.
+
+## Validation
+
+Automated validation:
+
+```text
+Phase 10 focused tests: 12 passed
+Full backend suite: 134 passed, 1 xfailed
+Compile check: passed
+```
+
+Live API validation after replacing the stale server process on port `8000`:
+
+```text
+Documents visible: 12
+Text status: indexed for 12
+Table status: indexed for 10, not_indexed for 2
+Visual status: indexed for 9, not_indexed for 3
+```
+
+`DOC-005` lookup verified:
+
+```text
+document_id: 30abbd45-a8d4-4585-82a7-326c7ab76786
+text count: 5
+table count: 3
+visual count: 7
+latest audit quality: weak
+core artifacts: 6 returned, 6 existing
+visual artifacts: 7 returned
+```
+
+Unit tests validate `not_available` for a completed table or visual indexing
+run with zero evidence. The live corpus currently contains unprocessed
+table/visual modalities, which are truthfully returned as `not_indexed`.
+
+## Phase 10 Status
+
+Phase 10 is implemented and validated as a backend document-inspection layer.
+It adds no new retrieval behavior; it makes the current corpus, identity
+mapping, index availability, audits, and artifacts visible through stable API
+contracts.

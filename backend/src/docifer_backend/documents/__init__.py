@@ -1,0 +1,1 @@
+"""Document registry services."""

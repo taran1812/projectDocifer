@@ -477,3 +477,40 @@ docs/phase9-multi-document-query.md
 ```
 
 Validated corpus state: all 12 indexed text documents were force-reindexed, with `10,113` Qdrant text points carrying `document_id`. Selected-document and explicit all-document validation queries both returned supported citations from `DOC-005` and `DOC-007`.
+
+## Phase 10 document registry APIs
+
+Phase 10 exposes typed inspection APIs for the Phase 9 document identity and
+index state:
+
+```text
+GET /documents
+GET /documents/{document_id}
+GET /documents/by-doc-id/{doc_id}
+GET /documents/by-content-hash/{content_hash}
+GET /documents/{document_id}/indexes
+GET /documents/{document_id}/audit
+GET /documents/{document_id}/artifacts
+```
+
+The document API reuses the Phase 9 `DOC-001` through `DOC-012` identity
+mapping. Text, table, and visual readiness is represented with explicit
+statuses: `indexed`, `not_indexed`, `not_available`, `failed`, and `unknown`.
+Artifact responses include filesystem existence and provenance metadata rather
+than raw file contents.
+
+Validated current-corpus result:
+
+```text
+Documents visible: 12
+Text status: indexed for 12
+Table status: indexed for 10, not_indexed for 2
+Visual status: indexed for 9, not_indexed for 3
+Backend suite: 134 passed, 1 xfailed
+```
+
+Detailed endpoint and validation notes are in:
+
+```text
+docs/phase10-document-registry-apis.md
+```
