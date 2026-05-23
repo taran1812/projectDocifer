@@ -63,6 +63,7 @@ class VisualQueryResult:
     filename: str
     source_path: str
     source_artifact_path: str
+    doc_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,10 @@ class VisualCitation:
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+    doc_id: str | None = None
+    document_id: str | None = None
+    content_hash: str | None = None
+    filename: str | None = None
 
 
 def format_visual_evidence_for_embedding(visual: VisualEvidence | VisualQueryResult) -> str:

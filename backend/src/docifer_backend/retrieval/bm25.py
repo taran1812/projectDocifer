@@ -41,12 +41,16 @@ class BM25Retriever:
         query: str,
         top_k: int,
         content_hash: str | None = None,
+        content_hashes: list[str] | None = None,
     ) -> list[RetrievedChunk]:
         query_terms = tokenize(query)
         if not query_terms:
             return []
 
-        documents = self._load_documents(content_hash=content_hash)
+        documents = self._load_documents(
+            content_hash=content_hash,
+            content_hashes=content_hashes,
+        )
         if not documents:
             return []
 
@@ -90,14 +94,22 @@ class BM25Retriever:
                 content_hash=chunk.content_hash,
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,
+                document_id=chunk.document_id,
             )
             for score, chunk in scored[:top_k]
         ]
 
-    def _load_documents(self, *, content_hash: str | None) -> list[BM25Document]:
+    def _load_documents(
+        self,
+        *,
+        content_hash: str | None,
+        content_hashes: list[str] | None = None,
+    ) -> list[BM25Document]:
         with self.session_factory() as session:
             statement = select(TextChunkRecord)
-            if content_hash:
+            if content_hashes is not None:
+                statement = statement.where(TextChunkRecord.content_hash.in_(content_hashes))
+            elif content_hash:
                 statement = statement.where(TextChunkRecord.content_hash == content_hash)
             chunks = session.scalars(statement.order_by(TextChunkRecord.chunk_index)).all()
 

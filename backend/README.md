@@ -443,3 +443,37 @@ Detailed notes are in:
 ```text
 docs/phase8-5-vector-search-optimization.md
 ```
+
+## Phase 9 multi-document query mode
+
+`POST /query` now supports explicit query scope:
+
+- `scope="single"`: existing default; requires `content_hash` or exactly one document identifier.
+- `scope="doc_ids"`: searches selected starter-corpus IDs such as `DOC-005` and `DOC-007`.
+- `scope="all"`: explicitly searches every indexed document eligible for the requested evidence type.
+
+Selected-document query:
+
+```json
+{
+  "question": "Compare the growth strategies in these reports.",
+  "scope": "doc_ids",
+  "doc_ids": ["DOC-005", "DOC-007"],
+  "top_k": 4,
+  "retrieval_mode": "hybrid",
+  "evidence_mode": "text",
+  "max_documents": 2,
+  "max_evidence_per_document": 2,
+  "verify_citations": true
+}
+```
+
+Multi-document responses expose document identity on evidence and citations, plus `documents_searched`, `documents_used`, and `evidence_by_document` in `debug`.
+
+Existing text documents should be reindexed with `force_reindex=true` so prior Qdrant points receive the new `document_id` payload field. Detailed notes are in:
+
+```text
+docs/phase9-multi-document-query.md
+```
+
+Validated corpus state: all 12 indexed text documents were force-reindexed, with `10,113` Qdrant text points carrying `document_id`. Selected-document and explicit all-document validation queries both returned supported citations from `DOC-005` and `DOC-007`.

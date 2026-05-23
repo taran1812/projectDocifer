@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.query import TextQueryService
@@ -51,18 +51,26 @@ def index_tables(request: TableIndexRequest) -> TableIndexResponse:
 
 @router.post("/query", response_model=QueryResponse)
 def query_text(request: QueryRequest) -> QueryResponse:
-    outcome = TextQueryService().query(
-        question=request.question,
-        content_hash=request.content_hash,
-        top_k=request.top_k,
-        retrieval_mode=request.retrieval_mode,
-        evidence_mode=request.evidence_mode,
-        table_top_k=request.table_top_k,
-        visual_top_k=request.visual_top_k,
-        verify_citations=request.verify_citations,
-        rerank=request.rerank,
-        rerank_top_n=request.rerank_top_n,
-    )
+    try:
+        outcome = TextQueryService().query(
+            question=request.question,
+            scope=request.scope,
+            content_hash=request.content_hash,
+            doc_ids=request.doc_ids,
+            document_ids=request.document_ids,
+            max_documents=request.max_documents,
+            max_evidence_per_document=request.max_evidence_per_document,
+            top_k=request.top_k,
+            retrieval_mode=request.retrieval_mode,
+            evidence_mode=request.evidence_mode,
+            table_top_k=request.table_top_k,
+            visual_top_k=request.visual_top_k,
+            verify_citations=request.verify_citations,
+            rerank=request.rerank,
+            rerank_top_n=request.rerank_top_n,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     evidence = _evidence_responses(outcome.evidence)
     table_evidence = _table_evidence_responses(outcome.table_evidence)
     visual_evidence = _visual_evidence_responses(outcome.visual_evidence)
@@ -141,6 +149,10 @@ def _evidence_responses(chunks, *, include_chunk_ids: set[str] | None = None) ->
                 reranker_model=chunk.reranker_model,
                 retrieval_mode=chunk.retrieval_mode,
                 text=chunk.text,
+                doc_id=chunk.doc_id,
+                document_id=chunk.document_id,
+                filename=chunk.filename,
+                content_hash=chunk.content_hash,
                 source_path=chunk.source_path,
                 source_artifact_path=chunk.source_artifact_path,
                 page_start=chunk.page_start,
@@ -172,6 +184,10 @@ def _table_evidence_responses(
                 source_kind=table.source_kind,
                 table_readiness=table.table_readiness,
                 raw_text=table.raw_text,
+                doc_id=table.doc_id,
+                document_id=table.document_id,
+                filename=table.filename,
+                content_hash=table.content_hash,
                 markdown_table=table.markdown_table,
                 structured_json=table.structured_json,
                 section_heading=table.section_heading,
@@ -200,6 +216,7 @@ def _visual_evidence_responses(
                 visual_id=visual.visual_id,
                 document_id=visual.document_id,
                 content_hash=visual.content_hash,
+                doc_id=visual.doc_id,
                 score=visual.score,
                 dense_score=visual.dense_score,
                 lexical_score=visual.lexical_score,

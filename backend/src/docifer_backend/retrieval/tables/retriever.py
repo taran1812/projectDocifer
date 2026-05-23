@@ -69,16 +69,17 @@ class TableRetriever:
         query: str,
         top_k: int,
         content_hash: str | None = None,
+        content_hashes: list[str] | None = None,
         retrieval_mode: str = "table_hybrid",
     ) -> list[TableQueryResult]:
         retrieval_mode = retrieval_mode.lower()
         if retrieval_mode == "table_dense":
-            return self._dense_search(query=query, top_k=top_k, content_hash=content_hash)
+            return self._dense_search(query=query, top_k=top_k, content_hash=content_hash, content_hashes=content_hashes)
         if retrieval_mode == "table_bm25":
-            return self._bm25_search(query=query, top_k=top_k, content_hash=content_hash)
+            return self._bm25_search(query=query, top_k=top_k, content_hash=content_hash, content_hashes=content_hashes)
         if retrieval_mode == "table_hybrid":
-            dense_results = self._dense_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash)
-            lexical_results = self._bm25_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash)
+            dense_results = self._dense_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash, content_hashes=content_hashes)
+            lexical_results = self._bm25_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash, content_hashes=content_hashes)
             return _merge_table_hybrid_results(
                 dense_results=dense_results,
                 lexical_results=lexical_results,
@@ -92,6 +93,7 @@ class TableRetriever:
         query: str,
         top_k: int,
         content_hash: str | None,
+        content_hashes: list[str] | None,
     ) -> list[TableQueryResult]:
         query_vector = self.ai_provider.embed_texts([query])[0]
         try:
@@ -101,6 +103,7 @@ class TableRetriever:
                 query_vector=query_vector,
                 top_k=top_k,
                 content_hash=content_hash,
+                content_hashes=content_hashes,
             )
         except (UnexpectedResponse, ValueError):
             return []
@@ -110,6 +113,7 @@ class TableRetriever:
         records = self._load_records_by_table_ids(
             table_ids=[table_id for table_id, _ in scored_points],
             content_hash=content_hash,
+            content_hashes=content_hashes,
         )
         by_table_id = {record.table_id: record for record in records}
         results = [
@@ -132,11 +136,12 @@ class TableRetriever:
         query: str,
         top_k: int,
         content_hash: str | None,
+        content_hashes: list[str] | None,
     ) -> list[TableQueryResult]:
         query_terms = tokenize(query)
         if not query_terms:
             return []
-        documents = self._load_bm25_documents(content_hash=content_hash)
+        documents = self._load_bm25_documents(content_hash=content_hash, content_hashes=content_hashes)
         if not documents:
             return []
 
@@ -183,6 +188,7 @@ class TableRetriever:
         *,
         table_ids: list[str],
         content_hash: str | None,
+        content_hashes: list[str] | None,
     ) -> list[TableEvidenceRecord]:
         with self.session_factory() as session:
             statement = (
@@ -190,14 +196,23 @@ class TableRetriever:
                 .where(TableEvidenceRecord.table_id.in_(table_ids))
                 .where(TableEvidenceRecord.qdrant_point_id.is_not(None))
             )
-            if content_hash:
+            if content_hashes is not None:
+                statement = statement.where(TableEvidenceRecord.content_hash.in_(content_hashes))
+            elif content_hash:
                 statement = statement.where(TableEvidenceRecord.content_hash == content_hash)
             return list(session.scalars(statement))
 
-    def _load_bm25_documents(self, *, content_hash: str | None) -> list[_BM25TableDocument]:
+    def _load_bm25_documents(
+        self,
+        *,
+        content_hash: str | None,
+        content_hashes: list[str] | None,
+    ) -> list[_BM25TableDocument]:
         with self.session_factory() as session:
             statement = select(TableEvidenceRecord).where(TableEvidenceRecord.qdrant_point_id.is_not(None))
-            if content_hash:
+            if content_hashes is not None:
+                statement = statement.where(TableEvidenceRecord.content_hash.in_(content_hashes))
+            elif content_hash:
                 statement = statement.where(TableEvidenceRecord.content_hash == content_hash)
             records = session.scalars(statement.order_by(TableEvidenceRecord.table_index)).all()
 
@@ -348,6 +363,7 @@ def _merge_table_hybrid_results(
                 source_chunk_id=result.source_chunk_id,
                 title=result.title,
                 caption=result.caption,
+                doc_id=result.doc_id,
             )
         )
     merged.sort(key=lambda result: result.score, reverse=True)

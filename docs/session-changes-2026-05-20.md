@@ -3503,3 +3503,53 @@ Recommended diagnostic/quality experiment:
 QDRANT_EXACT_SEARCH=false
 QDRANT_SEARCH_EF=128
 ```
+
+---
+
+# Phase 9 - Multi-Document Query Mode
+
+## Implemented Changes
+
+- Added `backend/src/docifer_backend/retrieval/document_registry.py` for v1 `DOC-001` style document resolution and explicit query scopes.
+- Extended `/query` with `scope`, `doc_ids`, `document_ids`, `max_documents`, and `max_evidence_per_document`.
+- Kept the default request mode single-document; unfiltered corpus search now requires `scope="all"`.
+- Added multiple-content-hash filtering to dense and BM25 retrieval for text, tables, and visuals.
+- Added `document_id` to newly indexed text Qdrant payloads and to `RetrievedChunk`.
+- Added document identity fields to answer citations and retrieved evidence across text, table, and visual responses.
+- Added bounded multi-document context selection and debug summaries for searched/used documents and evidence counts.
+- Expanded the internal candidate pool for multi-document retrieval after a live corpus-wide probe showed one relevant document could be crowded out before final context selection (`20` minimum candidates for selected scopes, `50` for `all`).
+- Added evaluator scope flags for single-document regression and multi-document smoke runs.
+- Added `backend/tests/test_multidoc_query.py` and expanded text/reranker/evaluation regression coverage.
+- Added `docs/phase9-multi-document-query.md`, backend README guidance, and eval commands.
+
+## Compatibility Note
+
+Existing text Qdrant points required a forced text reindex to populate the new `document_id` payload field. This reindex was completed for all current corpus documents during Phase 9 validation.
+
+## Validation
+
+```text
+Focused multi-document/table/visual regression tests: 40 passed
+Full backend suite: 122 passed, 1 xfailed
+Compile check: passed
+```
+
+## Status
+
+Live validation completed on May 22, 2026:
+
+```text
+Documents force-reindexed: 12
+Text points scanned after reindex: 10,113
+Distinct document_id payload values: 12
+Text points missing document_id: 0
+```
+
+Supported live question combined `DOC-005` World Bank `1i`/`2i`/`3i` evidence with `DOC-007` OECD `48%` tertiary education evidence.
+
+| Scope | Documents searched | Documents used | Candidate pool | Verifier |
+|---|---:|---:|---:|---|
+| `doc_ids` (`DOC-005`, `DOC-007`) | 2 | 2 | 20 | `supported` |
+| `all` | 12 | 2 | 50 | `supported` |
+
+Phase 9 is code-complete, test-valid, and live corpus validated for selected-document and corpus-wide text querying.

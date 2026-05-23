@@ -72,6 +72,7 @@ class TableQueryResult:
     source_chunk_id: str | None
     title: str | None = None
     caption: str | None = None
+    doc_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,10 @@ class TableCitation:
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+    doc_id: str | None = None
+    document_id: str | None = None
+    content_hash: str | None = None
+    filename: str | None = None
 
 
 @dataclass(frozen=True)

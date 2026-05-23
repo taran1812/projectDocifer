@@ -135,6 +135,7 @@ def test_text_query_returns_answer_citations_and_evidence(tmp_path, session_fact
 
     assert "[C1]" in outcome.answer
     assert outcome.citations[0].citation_id == "C1"
+    assert outcome.evidence[0].document_id is not None
     assert outcome.evidence
     assert outcome.debug["retrieved_count"] > 0
     assert outcome.debug["unused_retrieved_count"] == len(outcome.evidence) - 1

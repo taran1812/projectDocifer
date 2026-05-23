@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from qdrant_client import QdrantClient
 
@@ -17,6 +17,11 @@ from docifer_backend.providers.base import (
 )
 from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import BM25Retriever
+from docifer_backend.retrieval.document_registry import (
+    DocumentScopeResolver,
+    QueryDocumentRef,
+    ScopeResolution,
+)
 from docifer_backend.retrieval.hybrid import merge_hybrid_results
 from docifer_backend.retrieval.reranking import CrossEncoderReranker, RerankerUnavailableError
 from docifer_backend.retrieval.tables.reasoning import reason_over_table_evidence
@@ -97,6 +102,10 @@ class QueryCitation:
     page_start: int | None
     page_end: int | None
     score: float
+    doc_id: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
+    content_hash: str | None = None
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
@@ -134,6 +143,7 @@ class TextQueryService:
         table_collection_name: str | None = None,
         visual_collection_name: str | None = None,
         reranker: object | None = None,
+        document_scope_resolver: DocumentScopeResolver | None = None,
     ) -> None:
         settings = get_settings()
         self.ai_provider = ai_provider or get_ai_provider()
@@ -147,6 +157,9 @@ class TextQueryService:
         self.reranker_batch_size = settings.reranker_batch_size
         self.reranker_max_length = settings.reranker_max_length
         self._reranker = reranker
+        self.document_scope_resolver = document_scope_resolver or DocumentScopeResolver(
+            session_factory=self.session_factory
+        )
         self.bm25_retriever = BM25Retriever(session_factory=self.session_factory)
         self.table_collection_name = table_collection_name or settings.qdrant_table_collection
         self.table_retriever = TableRetriever(
@@ -167,7 +180,12 @@ class TextQueryService:
         self,
         *,
         question: str,
+        scope: str = "single",
         content_hash: str | None = None,
+        doc_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        max_documents: int = 5,
+        max_evidence_per_document: int = 3,
         top_k: int = 4,
         retrieval_mode: str = "dense",
         evidence_mode: str = "text",
@@ -197,6 +215,45 @@ class TextQueryService:
         should_retrieve_visuals = evidence_mode == "visual" or (
             evidence_mode == "auto" and visual_intent["detected"]
         )
+        _validate_scope_arguments(
+            scope=scope,
+            content_hash=content_hash,
+            doc_ids=doc_ids,
+            document_ids=document_ids,
+            max_documents=max_documents,
+            max_evidence_per_document=max_evidence_per_document,
+        )
+        evidence_types = {
+            evidence_type
+            for evidence_type, requested in (
+                ("text", should_retrieve_text),
+                ("table", should_retrieve_tables),
+                ("visual", should_retrieve_visuals),
+            )
+            if requested
+        }
+        scope_resolution = self.document_scope_resolver.resolve(
+            scope=scope,
+            content_hash=content_hash,
+            doc_ids=doc_ids,
+            document_ids=document_ids,
+            evidence_types=evidence_types,
+        )
+        scoped_content_hash = content_hash if scope == "single" else None
+        scoped_content_hashes = scope_resolution.content_hashes
+        is_multi_document_scope = scope != "single"
+        context_pool_top_k = (
+            _multi_document_candidate_top_k(
+                scope=scope,
+                top_k=top_k,
+                table_top_k=table_top_k,
+                visual_top_k=visual_top_k,
+                max_documents=max_documents,
+                max_evidence_per_document=max_evidence_per_document,
+            )
+            if is_multi_document_scope
+            else top_k
+        )
 
         retrieved: list[RetrievedChunk] = []
         rerank_debug = _disabled_rerank_debug(
@@ -207,8 +264,9 @@ class TextQueryService:
         if should_retrieve_text:
             retrieved, rerank_debug = self._retrieve_with_optional_rerank(
                 question=question,
-                content_hash=content_hash,
-                top_k=top_k,
+                content_hash=scoped_content_hash,
+                content_hashes=scoped_content_hashes,
+                top_k=context_pool_top_k,
                 retrieval_mode=retrieval_mode,
                 rerank=rerank_requested,
                 rerank_top_n=rerank_candidate_top_n,
@@ -221,8 +279,9 @@ class TextQueryService:
             start = time.perf_counter()
             table_results = self.table_retriever.search(
                 query=question,
-                top_k=table_top_k,
-                content_hash=content_hash,
+                top_k=max(table_top_k, context_pool_top_k) if is_multi_document_scope else table_top_k,
+                content_hash=scoped_content_hash,
+                content_hashes=scoped_content_hashes,
                 retrieval_mode="table_hybrid",
             )
             if not table_results and evidence_mode == "table":
@@ -230,15 +289,11 @@ class TextQueryService:
                 table_results = self.table_retriever.search(
                     query=question,
                     top_k=retry_table_top_k,
-                    content_hash=content_hash,
+                    content_hash=scoped_content_hash,
+                    content_hashes=scoped_content_hashes,
                     retrieval_mode="table_hybrid",
                 )
             table_retrieval_latency_ms = int((time.perf_counter() - start) * 1000)
-            if table_results:
-                table_reasoning = reason_over_table_evidence(
-                    question=question,
-                    tables=table_results,
-                )
 
         visual_retrieval_latency_ms = None
         visual_results: list[VisualQueryResult] = []
@@ -247,19 +302,47 @@ class TextQueryService:
             start = time.perf_counter()
             visual_results = self.visual_retriever.search(
                 query=question,
-                top_k=visual_top_k,
-                content_hash=content_hash,
+                top_k=max(visual_top_k, context_pool_top_k) if is_multi_document_scope else visual_top_k,
+                content_hash=scoped_content_hash,
+                content_hashes=scoped_content_hashes,
                 retrieval_mode="visual_hybrid",
             )
             visual_retrieval_latency_ms = int((time.perf_counter() - start) * 1000)
-            if visual_results:
-                visual_interpretation = self.ai_provider.interpret_visual_evidence(
-                    question=question,
-                    visual_evidence=build_visual_evidence_inputs(
-                        visual_results,
-                        limit=visual_top_k,
-                    ),
-                )
+
+        retrieved = _enrich_text_documents(retrieved, scope_resolution)
+        table_results = _enrich_table_documents(table_results, scope_resolution)
+        visual_results = _enrich_visual_documents(visual_results, scope_resolution)
+        if is_multi_document_scope:
+            retrieved, table_results, visual_results = _limit_context_by_document(
+                retrieved=retrieved,
+                table_results=table_results,
+                visual_results=visual_results,
+                top_k=top_k,
+                table_top_k=table_top_k,
+                visual_top_k=visual_top_k,
+                max_documents=max_documents,
+                max_evidence_per_document=max_evidence_per_document,
+            )
+        if table_results:
+            table_reasoning = reason_over_table_evidence(
+                question=question,
+                tables=table_results,
+            )
+        if visual_results:
+            visual_interpretation = self.ai_provider.interpret_visual_evidence(
+                question=question,
+                visual_evidence=build_visual_evidence_inputs(
+                    visual_results,
+                    limit=visual_top_k,
+                ),
+            )
+
+        documents_used = _documents_used(
+            scope_resolution=scope_resolution,
+            retrieved=retrieved,
+            table_results=table_results,
+            visual_results=visual_results,
+        )
 
         debug = {
             "collection_name": self.collection_name,
@@ -293,7 +376,22 @@ class TextQueryService:
                 visual_interpretation.status if visual_interpretation else None
             ),
             "visual_interpretation": visual_interpretation_debug(visual_interpretation),
-            "content_hash_scope": "specific" if content_hash else "all",
+            "content_hash_scope": "specific" if scoped_content_hashes is not None else "all",
+            "scope": scope,
+            "documents_searched": [
+                document.as_debug() for document in scope_resolution.documents
+            ],
+            "documents_searched_count": len(scope_resolution.documents),
+            "documents_used": [document.as_debug() for document in documents_used],
+            "documents_used_count": len(documents_used),
+            "max_documents": max_documents,
+            "max_evidence_per_document": max_evidence_per_document,
+            "candidate_pool_top_k": context_pool_top_k,
+            "evidence_by_document": _evidence_by_document(
+                retrieved= retrieved,
+                table_results=table_results,
+                visual_results=visual_results,
+            ),
         }
         debug.update(vector_search_debug(collection_name=self.collection_name))
         debug.update(rerank_debug)
@@ -370,7 +468,8 @@ class TextQueryService:
             retry_top_k = min(top_k * 2, 8)
             retry_retrieved, retry_rerank_debug = self._retrieve_with_optional_rerank(
                 question=question,
-                content_hash=content_hash,
+                content_hash=scoped_content_hash,
+                content_hashes=scoped_content_hashes,
                 top_k=retry_top_k,
                 retrieval_mode=retrieval_mode,
                 rerank=rerank_requested,
@@ -381,6 +480,18 @@ class TextQueryService:
                 for key, value in retry_rerank_debug.items()
             }
             abstention_retry_triggered = True
+            retry_retrieved = _enrich_text_documents(retry_retrieved, scope_resolution)
+            if is_multi_document_scope:
+                retry_retrieved, _, _ = _limit_context_by_document(
+                    retrieved=retry_retrieved,
+                    table_results=[],
+                    visual_results=[],
+                    top_k=retry_top_k,
+                    table_top_k=0,
+                    visual_top_k=0,
+                    max_documents=max_documents,
+                    max_evidence_per_document=max_evidence_per_document,
+                )
             retry_grounding = [
                 GroundingEvidence(
                     citation_id=f"C{index}",
@@ -436,6 +547,12 @@ class TextQueryService:
             for index, visual in enumerate(visual_results, start=1)
             if f"V{index}" not in cited_ids
         ]
+        documents_used = _documents_used(
+            scope_resolution=scope_resolution,
+            retrieved=retrieved,
+            table_results=table_results,
+            visual_results=visual_results,
+        )
 
         debug.update(
             {
@@ -455,6 +572,13 @@ class TextQueryService:
                 "retry_top_k": retry_top_k,
                 "initial_answer_was_abstention": initial_answer_was_abstention,
                 "retry_answer_was_abstention": retry_answer_was_abstention,
+                "documents_used": [document.as_debug() for document in documents_used],
+                "documents_used_count": len(documents_used),
+                "evidence_by_document": _evidence_by_document(
+                    retrieved=retrieved,
+                    table_results=table_results,
+                    visual_results=visual_results,
+                ),
             }
         )
         debug.update(rerank_debug)
@@ -480,6 +604,7 @@ class TextQueryService:
         *,
         question: str,
         content_hash: str | None,
+        content_hashes: list[str] | None = None,
         top_k: int,
         retrieval_mode: str,
     ) -> list[RetrievedChunk]:
@@ -492,6 +617,7 @@ class TextQueryService:
                     query_vector=query_vector,
                     top_k=top_k,
                     content_hash=content_hash,
+                    content_hashes=content_hashes,
                 )
             except (ValueError, Exception) as exc:
                 if "not found" in str(exc).lower() or "collection" in str(exc).lower():
@@ -502,6 +628,7 @@ class TextQueryService:
                 query=question,
                 top_k=top_k,
                 content_hash=content_hash,
+                content_hashes=content_hashes,
             )
         if retrieval_mode == "hybrid":
             query_vector = self.ai_provider.embed_texts([question])[0]
@@ -511,11 +638,13 @@ class TextQueryService:
                 query_vector=query_vector,
                 top_k=max(top_k * 2, top_k),
                 content_hash=content_hash,
+                content_hashes=content_hashes,
             )
             lexical_results = self.bm25_retriever.search(
                 query=question,
                 top_k=max(top_k * 2, top_k),
                 content_hash=content_hash,
+                content_hashes=content_hashes,
             )
             return merge_hybrid_results(
                 dense_results=dense_results,
@@ -529,6 +658,7 @@ class TextQueryService:
         *,
         question: str,
         content_hash: str | None,
+        content_hashes: list[str] | None = None,
         top_k: int,
         retrieval_mode: str,
         rerank: bool,
@@ -538,6 +668,7 @@ class TextQueryService:
         candidates = self._retrieve(
             question=question,
             content_hash=content_hash,
+            content_hashes=content_hashes,
             top_k=candidate_top_n,
             retrieval_mode=retrieval_mode,
         )
@@ -685,6 +816,10 @@ def _build_answer_citations(
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,
                 score=chunk.score,
+                doc_id=chunk.doc_id,
+                document_id=chunk.document_id,
+                filename=chunk.filename,
+                content_hash=chunk.content_hash,
                 dense_score=chunk.dense_score,
                 lexical_score=chunk.lexical_score,
                 hybrid_score=chunk.hybrid_score,
@@ -718,6 +853,10 @@ def _build_table_answer_citations(
                 table_type=table.table_type,
                 table_readiness=table.table_readiness,
                 score=table.score,
+                doc_id=table.doc_id,
+                document_id=table.document_id,
+                filename=table.filename,
+                content_hash=table.content_hash,
                 dense_score=table.dense_score,
                 lexical_score=table.lexical_score,
                 hybrid_score=table.hybrid_score,
@@ -748,12 +887,237 @@ def _build_visual_answer_citations(
                 visual_type=visual.visual_type,
                 visual_readiness=visual.visual_readiness,
                 score=visual.score,
+                doc_id=visual.doc_id,
+                document_id=visual.document_id,
+                filename=visual.filename,
+                content_hash=visual.content_hash,
                 dense_score=visual.dense_score,
                 lexical_score=visual.lexical_score,
                 hybrid_score=visual.hybrid_score,
             )
         )
     return citations
+
+
+def _validate_scope_arguments(
+    *,
+    scope: str,
+    content_hash: str | None,
+    doc_ids: list[str] | None,
+    document_ids: list[str] | None,
+    max_documents: int,
+    max_evidence_per_document: int,
+) -> None:
+    if scope not in {"single", "doc_ids", "all"}:
+        raise ValueError(f"Unsupported query scope: {scope}")
+    if max_documents < 1 or max_documents > 25:
+        raise ValueError("max_documents must be between 1 and 25.")
+    if max_evidence_per_document < 1 or max_evidence_per_document > 10:
+        raise ValueError("max_evidence_per_document must be between 1 and 10.")
+    selected_ids = (doc_ids or []) + (document_ids or [])
+    if scope == "single":
+        if content_hash and selected_ids:
+            raise ValueError("scope='single' accepts content_hash or one document identifier, not both.")
+        if not content_hash and len(selected_ids) != 1:
+            raise ValueError("scope='single' requires content_hash or exactly one doc_id/document_id.")
+    elif scope == "doc_ids":
+        if content_hash:
+            raise ValueError("scope='doc_ids' does not accept content_hash.")
+        if not selected_ids:
+            raise ValueError("scope='doc_ids' requires doc_ids or document_ids.")
+    elif content_hash or selected_ids:
+        raise ValueError("scope='all' cannot be combined with document filters.")
+
+
+def _enrich_text_documents(
+    results: list[RetrievedChunk],
+    scope_resolution: ScopeResolution,
+) -> list[RetrievedChunk]:
+    by_content_hash = scope_resolution.by_content_hash
+    return [
+        replace(
+            result,
+            document_id=(
+                by_content_hash[result.content_hash].document_id
+                if result.content_hash in by_content_hash
+                else result.document_id
+            ),
+            doc_id=(
+                by_content_hash[result.content_hash].doc_id
+                if result.content_hash in by_content_hash
+                else result.doc_id
+            ),
+        )
+        for result in results
+    ]
+
+
+def _enrich_table_documents(
+    results: list[TableQueryResult],
+    scope_resolution: ScopeResolution,
+) -> list[TableQueryResult]:
+    by_content_hash = scope_resolution.by_content_hash
+    return [
+        replace(
+            result,
+            doc_id=(
+                by_content_hash[result.content_hash].doc_id
+                if result.content_hash in by_content_hash
+                else result.doc_id
+            ),
+        )
+        for result in results
+    ]
+
+
+def _enrich_visual_documents(
+    results: list[VisualQueryResult],
+    scope_resolution: ScopeResolution,
+) -> list[VisualQueryResult]:
+    by_content_hash = scope_resolution.by_content_hash
+    return [
+        replace(
+            result,
+            doc_id=(
+                by_content_hash[result.content_hash].doc_id
+                if result.content_hash in by_content_hash
+                else result.doc_id
+            ),
+        )
+        for result in results
+    ]
+
+
+def _limit_context_by_document(
+    *,
+    retrieved: list[RetrievedChunk],
+    table_results: list[TableQueryResult],
+    visual_results: list[VisualQueryResult],
+    top_k: int,
+    table_top_k: int,
+    visual_top_k: int,
+    max_documents: int,
+    max_evidence_per_document: int,
+) -> tuple[list[RetrievedChunk], list[TableQueryResult], list[VisualQueryResult]]:
+    candidates: list[tuple[str, str, float, object]] = [
+        ("text", result.chunk_id, result.score, result) for result in retrieved
+    ]
+    candidates.extend(
+        ("table", result.table_id, result.score, result) for result in table_results
+    )
+    candidates.extend(
+        ("visual", result.visual_id, result.score, result) for result in visual_results
+    )
+    candidates.sort(key=lambda candidate: candidate[2], reverse=True)
+
+    retained: dict[str, set[str]] = {"text": set(), "table": set(), "visual": set()}
+    kind_limits = {"text": top_k, "table": table_top_k, "visual": visual_top_k}
+    document_counts: dict[str, int] = {}
+    included_documents: set[str] = set()
+    for kind, item_id, _, result in candidates:
+        if len(retained[kind]) >= kind_limits[kind]:
+            continue
+        document_key = _document_key(result)
+        if document_key not in included_documents:
+            if len(included_documents) >= max_documents:
+                continue
+            included_documents.add(document_key)
+        if document_counts.get(document_key, 0) >= max_evidence_per_document:
+            continue
+        retained[kind].add(item_id)
+        document_counts[document_key] = document_counts.get(document_key, 0) + 1
+
+    return (
+        [result for result in retrieved if result.chunk_id in retained["text"]],
+        [result for result in table_results if result.table_id in retained["table"]],
+        [result for result in visual_results if result.visual_id in retained["visual"]],
+    )
+
+
+def _multi_document_candidate_top_k(
+    *,
+    scope: str,
+    top_k: int,
+    table_top_k: int,
+    visual_top_k: int,
+    max_documents: int,
+    max_evidence_per_document: int,
+) -> int:
+    minimum_pool = 50 if scope == "all" else 20
+    requested_context = max(
+        top_k,
+        table_top_k,
+        visual_top_k,
+        max_documents * max_evidence_per_document,
+    )
+    return min(50, max(minimum_pool, requested_context))
+
+
+def _documents_used(
+    *,
+    scope_resolution: ScopeResolution,
+    retrieved: list[RetrievedChunk],
+    table_results: list[TableQueryResult],
+    visual_results: list[VisualQueryResult],
+) -> list[QueryDocumentRef]:
+    by_content_hash = scope_resolution.by_content_hash
+    documents: list[QueryDocumentRef] = []
+    seen: set[str] = set()
+    for result in [*retrieved, *table_results, *visual_results]:
+        if result.content_hash in seen:
+            continue
+        seen.add(result.content_hash)
+        document = by_content_hash.get(result.content_hash)
+        if document:
+            documents.append(document)
+            continue
+        documents.append(
+            QueryDocumentRef(
+                doc_id=getattr(result, "doc_id", None),
+                document_id=getattr(result, "document_id", None) or "",
+                content_hash=result.content_hash,
+                filename=result.filename,
+                source_path=result.source_path,
+            )
+        )
+    return documents
+
+
+def _evidence_by_document(
+    *,
+    retrieved: list[RetrievedChunk],
+    table_results: list[TableQueryResult],
+    visual_results: list[VisualQueryResult],
+) -> list[dict]:
+    summaries: dict[str, dict] = {}
+    for kind, results in (
+        ("text", retrieved),
+        ("table", table_results),
+        ("visual", visual_results),
+    ):
+        for result in results:
+            summary = summaries.setdefault(
+                result.content_hash,
+                {
+                    "doc_id": getattr(result, "doc_id", None),
+                    "document_id": getattr(result, "document_id", None),
+                    "filename": result.filename,
+                    "content_hash": result.content_hash,
+                    "text_count": 0,
+                    "table_count": 0,
+                    "visual_count": 0,
+                },
+            )
+            summary[f"{kind}_count"] += 1
+    return list(summaries.values())
+
+
+def _document_key(result: object) -> str:
+    return str(
+        getattr(result, "content_hash", None)
+        or getattr(result, "document_id", None)
+        or "unknown"
+    )
 
 
 def detect_table_intent(question: str) -> dict:

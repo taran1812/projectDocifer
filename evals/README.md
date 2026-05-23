@@ -234,3 +234,25 @@ Validated Phase 8.5 results:
 | `phase8_5_ann_ef128` | ANN, `ef=128` | 0.6670 | 0.975 | 0.0556 | 1.00 | 3338.74 | 16271.60 |
 
 Recommendation: keep ANN `ef=64` as the default. Use ANN `ef=128` as a quality experiment when higher P95 latency is acceptable. Use exact search as a diagnostic, not as the default retrieval path.
+
+## Phase 9 - Multi-Document Query Checks
+
+The normal golden run remains single-document by default. Run it after Phase 9 as a regression check:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase9_single_doc_regression --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations
+```
+
+Run explicit corpus-wide retrieval over an indexed evaluation slice:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase9_all_docs_smoke --scope all --doc-id DOC-005 --doc-id DOC-007 --top-k 4 --retrieval-mode hybrid --evidence-mode category --verify-citations --max-documents 5 --max-evidence-per-document 3
+```
+
+Run selected-document scope:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner --run-name phase9_selected_docs_smoke --scope doc_ids --doc-id DOC-005 --doc-id DOC-007 --top-k 4 --retrieval-mode hybrid --evidence-mode text --verify-citations --max-documents 2 --max-evidence-per-document 2
+```
+
+Before interpreting document metadata in existing text results, reindex the selected canonical artifacts through `POST /index/text` with `force_reindex=true`.

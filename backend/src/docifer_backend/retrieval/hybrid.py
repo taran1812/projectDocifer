@@ -37,6 +37,8 @@ def merge_hybrid_results(
                 content_hash=chunk.content_hash,
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,
+                document_id=chunk.document_id,
+                doc_id=chunk.doc_id,
             )
         )
 

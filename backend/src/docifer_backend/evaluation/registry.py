@@ -6,24 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from docifer_backend.ingestion.models import Document
+from docifer_backend.retrieval.document_registry import LOCAL_CORPUS_FILENAMES
 from docifer_backend.retrieval.models import TextChunkRecord
 from docifer_backend.storage.database import get_session_factory
-
-
-LOCAL_CORPUS_FILENAMES = {
-    "DOC-001": "2025_AnnualReport.pdf",
-    "DOC-002": "NVIDIA-2025-Annual-Report.pdf",
-    "DOC-003": "JPChaseannualreport-2025.pdf",
-    "DOC-004": "COSTco-Annual-Report-2025.pdf",
-    "DOC-005": "Worldbank2024.pdf",
-    "DOC-006": "BOSIB13bdde89d07f1b3711dd8e86adb477.pdf",
-    "DOC-007": "OECD.pdf",
-    "DOC-008": "WSPR_2024_EN_WEB_1.pdf",
-    "DOC-009": "2025-03-12-NASA-HDBK-1009A.pdf",
-    "DOC-010": "NIST.SP.800-53r5.pdf",
-    "DOC-011": "amtg_handbook.pdf",
-    "DOC-012": "9789240115569-eng.pdf",
-}
 
 
 @dataclass(frozen=True)

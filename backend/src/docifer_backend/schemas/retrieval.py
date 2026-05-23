@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -34,7 +36,12 @@ class TableIndexResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
+    scope: Literal["single", "doc_ids", "all"] = "single"
     content_hash: str | None = None
+    doc_ids: list[str] | None = None
+    document_ids: list[str] | None = None
+    max_documents: int = Field(default=5, ge=1, le=25)
+    max_evidence_per_document: int = Field(default=3, ge=1, le=10)
     top_k: int = Field(default=4, ge=1, le=10)
     retrieval_mode: str = Field(default="dense", pattern="^(dense|bm25|hybrid)$")
     evidence_mode: str = Field(default="text", pattern="^(text|table|visual|auto)$")
@@ -45,9 +52,22 @@ class QueryRequest(BaseModel):
     rerank_top_n: int | None = Field(default=None, ge=1, le=50)
 
     @model_validator(mode="after")
-    def validate_reranking(self):
+    def validate_request(self):
         if self.rerank_top_n is not None and self.rerank_top_n < self.top_k:
             raise ValueError("rerank_top_n must be greater than or equal to top_k.")
+        selected_ids = (self.doc_ids or []) + (self.document_ids or [])
+        if self.scope == "single":
+            if self.content_hash and selected_ids:
+                raise ValueError("scope='single' accepts content_hash or one document identifier, not both.")
+            if not self.content_hash and len(selected_ids) != 1:
+                raise ValueError("scope='single' requires content_hash or exactly one doc_id/document_id.")
+        elif self.scope == "doc_ids":
+            if self.content_hash:
+                raise ValueError("scope='doc_ids' does not accept content_hash.")
+            if not selected_ids:
+                raise ValueError("scope='doc_ids' requires doc_ids or document_ids.")
+        elif self.scope == "all" and (self.content_hash or selected_ids):
+            raise ValueError("scope='all' cannot be combined with document filters.")
         return self
 
 
@@ -59,6 +79,10 @@ class CitationResponse(BaseModel):
     page_start: int | None
     page_end: int | None
     score: float
+    doc_id: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
+    content_hash: str | None = None
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
@@ -81,6 +105,10 @@ class EvidenceResponse(BaseModel):
     reranker_model: str | None = None
     retrieval_mode: str
     text: str
+    doc_id: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
+    content_hash: str | None = None
     source_path: str
     source_artifact_path: str
     page_start: int | None
@@ -98,6 +126,10 @@ class TableCitationResponse(BaseModel):
     table_type: str
     table_readiness: str
     score: float
+    doc_id: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
+    content_hash: str | None = None
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
@@ -115,6 +147,10 @@ class TableEvidenceResponse(BaseModel):
     source_kind: str
     table_readiness: str
     raw_text: str
+    doc_id: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
+    content_hash: str | None = None
     markdown_table: str | None = None
     structured_json: dict | None = None
     section_heading: str | None = None
@@ -137,6 +173,10 @@ class VisualCitationResponse(BaseModel):
     visual_type: str
     visual_readiness: str
     score: float
+    doc_id: str | None = None
+    document_id: str | None = None
+    filename: str | None = None
+    content_hash: str | None = None
     dense_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
@@ -147,6 +187,7 @@ class VisualEvidenceResponse(BaseModel):
     visual_id: str
     document_id: str
     content_hash: str
+    doc_id: str | None = None
     score: float
     dense_score: float | None = None
     lexical_score: float | None = None

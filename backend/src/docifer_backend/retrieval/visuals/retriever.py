@@ -53,16 +53,17 @@ class VisualRetriever:
         query: str,
         top_k: int,
         content_hash: str | None = None,
+        content_hashes: list[str] | None = None,
         retrieval_mode: str = "visual_hybrid",
     ) -> list[VisualQueryResult]:
         mode = retrieval_mode.lower()
         if mode == "visual_dense":
-            return self._dense_search(query=query, top_k=top_k, content_hash=content_hash)
+            return self._dense_search(query=query, top_k=top_k, content_hash=content_hash, content_hashes=content_hashes)
         if mode == "visual_bm25":
-            return self._bm25_search(query=query, top_k=top_k, content_hash=content_hash)
+            return self._bm25_search(query=query, top_k=top_k, content_hash=content_hash, content_hashes=content_hashes)
         if mode == "visual_hybrid":
-            dense = self._dense_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash)
-            lexical = self._bm25_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash)
+            dense = self._dense_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash, content_hashes=content_hashes)
+            lexical = self._bm25_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash, content_hashes=content_hashes)
             return _merge_hybrid(dense_results=dense, lexical_results=lexical, top_k=top_k)
         raise ValueError(f"Unsupported visual retrieval mode: {retrieval_mode}")
 
@@ -72,6 +73,7 @@ class VisualRetriever:
         query: str,
         top_k: int,
         content_hash: str | None,
+        content_hashes: list[str] | None,
     ) -> list[VisualQueryResult]:
         query_vector = self.ai_provider.embed_texts([query])[0]
         try:
@@ -81,6 +83,7 @@ class VisualRetriever:
                 query_vector=query_vector,
                 top_k=top_k,
                 content_hash=content_hash,
+                content_hashes=content_hashes,
             )
         except (UnexpectedResponse, ValueError):
             return []
@@ -89,6 +92,7 @@ class VisualRetriever:
         records = self._load_records_by_visual_ids(
             visual_ids=[vid for vid, _ in scored_points],
             content_hash=content_hash,
+            content_hashes=content_hashes,
         )
         by_id = {r.visual_id: r for r in records}
         return [
@@ -110,11 +114,12 @@ class VisualRetriever:
         query: str,
         top_k: int,
         content_hash: str | None,
+        content_hashes: list[str] | None,
     ) -> list[VisualQueryResult]:
         query_terms = tokenize(query)
         if not query_terms:
             return []
-        documents = self._load_bm25_documents(content_hash=content_hash)
+        documents = self._load_bm25_documents(content_hash=content_hash, content_hashes=content_hashes)
         if not documents:
             return []
 
@@ -154,6 +159,7 @@ class VisualRetriever:
         *,
         visual_ids: list[str],
         content_hash: str | None,
+        content_hashes: list[str] | None,
     ) -> list[VisualEvidenceRecord]:
         with self.session_factory() as session:
             stmt = (
@@ -161,14 +167,23 @@ class VisualRetriever:
                 .where(VisualEvidenceRecord.visual_id.in_(visual_ids))
                 .where(VisualEvidenceRecord.qdrant_point_id.is_not(None))
             )
-            if content_hash:
+            if content_hashes is not None:
+                stmt = stmt.where(VisualEvidenceRecord.content_hash.in_(content_hashes))
+            elif content_hash:
                 stmt = stmt.where(VisualEvidenceRecord.content_hash == content_hash)
             return list(session.scalars(stmt))
 
-    def _load_bm25_documents(self, *, content_hash: str | None) -> list[_BM25VisualDocument]:
+    def _load_bm25_documents(
+        self,
+        *,
+        content_hash: str | None,
+        content_hashes: list[str] | None,
+    ) -> list[_BM25VisualDocument]:
         with self.session_factory() as session:
             stmt = select(VisualEvidenceRecord).where(VisualEvidenceRecord.qdrant_point_id.is_not(None))
-            if content_hash:
+            if content_hashes is not None:
+                stmt = stmt.where(VisualEvidenceRecord.content_hash.in_(content_hashes))
+            elif content_hash:
                 stmt = stmt.where(VisualEvidenceRecord.content_hash == content_hash)
             records = list(session.scalars(stmt.order_by(VisualEvidenceRecord.visual_index)))
 
@@ -275,6 +290,7 @@ def _merge_hybrid(
             filename=result.filename,
             source_path=result.source_path,
             source_artifact_path=result.source_artifact_path,
+            doc_id=result.doc_id,
         ))
     merged.sort(key=lambda r: r.score, reverse=True)
     return merged[:top_k]

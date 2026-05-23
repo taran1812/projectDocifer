@@ -77,6 +77,7 @@ def test_query_rerank_false_preserves_existing_top_k(session_factory):
 
     outcome = service.query(
         question="What is the answer?",
+        content_hash="a" * 64,
         top_k=2,
         retrieval_mode="hybrid",
         evidence_mode="text",
@@ -105,6 +106,7 @@ def test_query_rerank_true_retrieves_candidates_and_returns_final_top_k(session_
 
     outcome = service.query(
         question="What is the answer?",
+        content_hash="a" * 64,
         top_k=2,
         retrieval_mode="hybrid",
         evidence_mode="text",
@@ -129,6 +131,7 @@ def test_query_reranker_failure_falls_back_to_original_order(session_factory):
 
     outcome = service.query(
         question="What is the answer?",
+        content_hash="a" * 64,
         top_k=2,
         retrieval_mode="hybrid",
         evidence_mode="text",
@@ -149,6 +152,7 @@ def test_query_rejects_rerank_top_n_smaller_than_top_k(session_factory):
     with pytest.raises(ValueError, match="rerank_top_n"):
         service.query(
             question="What is the answer?",
+            content_hash="a" * 64,
             top_k=4,
             retrieval_mode="hybrid",
             evidence_mode="text",
@@ -161,6 +165,7 @@ def test_query_request_rejects_rerank_top_n_smaller_than_top_k():
     with pytest.raises(ValueError, match="rerank_top_n"):
         QueryRequest(
             question="What is the answer?",
+            content_hash="a" * 64,
             top_k=4,
             rerank=True,
             rerank_top_n=3,
@@ -178,7 +183,7 @@ def _service(session_factory, *, reranker):
 
 
 def _stub_retrieve(service: TextQueryService, *, calls: list[int], evidence: list[RetrievedChunk]) -> None:
-    def fake_retrieve(self, *, question, content_hash, top_k, retrieval_mode):
+    def fake_retrieve(self, *, question, content_hash, content_hashes=None, top_k, retrieval_mode):
         calls.append(top_k)
         return evidence[:top_k]
 

@@ -109,6 +109,7 @@ class TextIndexingService:
             upsert_text_chunks(
                 self.qdrant_client,
                 collection_name=self.collection_name,
+                document_id=document_id,
                 chunks=chunks,
                 embeddings=embeddings,
                 batch_size=self.qdrant_upsert_batch_size,

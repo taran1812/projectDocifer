@@ -52,6 +52,8 @@ class RetrievedChunk:
     content_hash: str
     page_start: int | None
     page_end: int | None
+    document_id: str | None = None
+    doc_id: str | None = None
     rerank_score: float | None = None
     pre_rerank_rank: int | None = None
     post_rerank_rank: int | None = None
@@ -90,6 +92,7 @@ def upsert_text_chunks(
     client: QdrantClient,
     *,
     collection_name: str,
+    document_id: str,
     chunks: list[TextChunk],
     embeddings: list[list[float]],
     batch_size: int = 128,
@@ -112,6 +115,7 @@ def upsert_text_chunks(
                 "chunk_id": chunk.chunk_id,
                 "chunk_index": chunk.chunk_index,
                 "content_hash": chunk.content_hash,
+                "document_id": document_id,
                 "filename": chunk.filename,
                 "source_path": chunk.source_path,
                 "source_artifact_path": chunk.source_artifact_path,
@@ -189,8 +193,9 @@ def search_table_evidence_points(
     query_vector: list[float],
     top_k: int,
     content_hash: str | None = None,
+    content_hashes: list[str] | None = None,
 ) -> list[tuple[str, float]]:
-    query_filter = _content_hash_filter(content_hash)
+    query_filter = _content_hash_filter(content_hash, content_hashes)
     response = client.query_points(
         collection_name=collection_name,
         query=query_vector,
@@ -240,8 +245,9 @@ def search_text_chunks(
     query_vector: list[float],
     top_k: int,
     content_hash: str | None = None,
+    content_hashes: list[str] | None = None,
 ) -> list[RetrievedChunk]:
-    query_filter = _content_hash_filter(content_hash)
+    query_filter = _content_hash_filter(content_hash, content_hashes)
 
     response = client.query_points(
         collection_name=collection_name,
@@ -270,19 +276,44 @@ def search_text_chunks(
                 content_hash=str(payload["content_hash"]),
                 page_start=payload.get("page_start"),
                 page_end=payload.get("page_end"),
+                document_id=(
+                    str(payload["document_id"])
+                    if payload.get("document_id") is not None
+                    else None
+                ),
             )
         )
     return results
 
 
-def _content_hash_filter(content_hash: str | None) -> models.Filter | None:
-    if not content_hash:
+def _content_hash_filter(
+    content_hash: str | None,
+    content_hashes: list[str] | None = None,
+) -> models.Filter | None:
+    selected_hashes = content_hashes if content_hashes is not None else (
+        [content_hash] if content_hash else None
+    )
+    if selected_hashes is None:
         return None
+    if not selected_hashes:
+        return models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="content_hash",
+                    match=models.MatchAny(any=[]),
+                )
+            ]
+        )
+    match = (
+        models.MatchValue(value=selected_hashes[0])
+        if len(selected_hashes) == 1
+        else models.MatchAny(any=selected_hashes)
+    )
     return models.Filter(
         must=[
             models.FieldCondition(
                 key="content_hash",
-                match=models.MatchValue(value=content_hash),
+                match=match,
             )
         ]
     )
@@ -361,8 +392,9 @@ def search_visual_evidence_points(
     query_vector: list[float],
     top_k: int,
     content_hash: str | None = None,
+    content_hashes: list[str] | None = None,
 ) -> list[tuple[str, float]]:
-    query_filter = _content_hash_filter(content_hash)
+    query_filter = _content_hash_filter(content_hash, content_hashes)
     response = client.query_points(
         collection_name=collection_name,
         query=query_vector,
