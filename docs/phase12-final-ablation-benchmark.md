@@ -116,13 +116,31 @@ Config: `top_k=12`, `retrieval_mode=hybrid`, `evidence_mode=category`, `verify_c
 
 ## Task 8 — Query Decomposition Ablation
 
-TBD
+Skipped — evidence-answer gap (0.104) did not exceed the 0.12 threshold required to trigger decomposition. No multi-part question sub-pool analysis performed.
 
 ---
 
 ## Task 9 — Reranker Broad-Pool Ablation
 
-TBD
+Config: `top_k=12`, `retrieval_mode=hybrid`, `evidence_mode=category`, `verify_citations=True`, `chunk_size=1200/200`
+
+No-rerank baseline: `phase12_chunks1200_topk12` — answer_recall_all=0.7170, P50=3632ms, P95=16397ms
+
+| Run | Pool | Final K | Answer Recall (all) | Citation % | False Abstention (n/35) | P50 ms | P95 ms | Recall Δ vs Baseline |
+|-----|-----:|--------:|--------------------:|-----------:|------------------------:|-------:|-------:|---------------------:|
+| phase12_chunks1200_topk12 (no-rerank) | — | 12 | 0.7170 | 0.975 | 2 | 3632 | 16397 | — |
+| phase12_rerank20_to12 | 20 | 12 | 0.7329 | 0.9744 | 0 | 11602 | 28025 | +0.016 |
+| phase12_rerank30_to12 | 30 | 12 | 0.6083 | 0.9231 | 6 | 14501 | 39293 | −0.109 |
+
+**Reranker status:** `rerank=True` confirmed in all results (BAAI/bge-reranker-base loaded successfully).
+
+### Decision
+
+**RERANKER DISABLED** — default remains `rerank=False`.
+
+- pool=20: recall gain +0.016 < +0.03 gate; P50 3.2× slower (+7.9s), P95 +11.6s — both gate violations
+- pool=30: recall regressed −0.109 (worse than no-rerank); false_abstention_rate 17% (6/35); citation rate 0.923 below 0.95 gate; P50 4.0× slower, P95 +22.9s — fails all gates
+- Hypothesis: cross-encoder (BAAI/bge-reranker-base) is calibrated for general semantic similarity, not domain-specific factual evidence matching; reranking aggressively re-ranks relevant chunks out of the top-k window, increasing abstention at pool=30
 
 ---
 
