@@ -75,7 +75,7 @@ class VisualRetriever:
         self,
         query: str,
         *,
-        top_k: int = 4,
+        top_k: int = 3,
         content_hash: str | None = None,
         content_hashes: list[str] | None = None,
     ) -> list[VisualQueryResult]:
@@ -91,7 +91,7 @@ class VisualRetriever:
                 limit=top_k,
                 with_payload=True,
             )
-        except Exception:
+        except (UnexpectedResponse, ValueError):
             return []
         scored_points: list[tuple[str, float]] = []
         for point in response.points:

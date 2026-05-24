@@ -111,7 +111,7 @@ class TableRetriever:
                 limit=top_k,
                 with_payload=True,
             )
-        except Exception:
+        except (UnexpectedResponse, ValueError):
             return []
         scored_points: list[tuple[str, float]] = []
         for point in response.points:
