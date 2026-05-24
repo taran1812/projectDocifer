@@ -13,11 +13,15 @@ from docifer_backend.config.settings import get_settings
 from docifer_backend.providers.base import AIProvider
 from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import tokenize
-from docifer_backend.retrieval.vector_store import search_visual_evidence_points
+from docifer_backend.retrieval.vector_store import (
+    _content_hash_filter,
+    _vector_search_params,
+    search_visual_evidence_points,
+)
 from docifer_backend.retrieval.visuals.models import VisualEvidenceRecord
 from docifer_backend.retrieval.visuals.schemas import VisualQueryResult
 from docifer_backend.storage.database import get_session_factory
-from docifer_backend.storage.qdrant import get_qdrant_client
+from docifer_backend.storage.qdrant import get_async_qdrant_client, get_qdrant_client
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,56 @@ class VisualRetriever:
             lexical = self._bm25_search(query=query, top_k=max(top_k * 2, top_k), content_hash=content_hash, content_hashes=content_hashes)
             return _merge_hybrid(dense_results=dense, lexical_results=lexical, top_k=top_k)
         raise ValueError(f"Unsupported visual retrieval mode: {retrieval_mode}")
+
+    async def search_async(
+        self,
+        query: str,
+        *,
+        top_k: int = 4,
+        content_hash: str | None = None,
+        content_hashes: list[str] | None = None,
+    ) -> list[VisualQueryResult]:
+        async_client = get_async_qdrant_client()
+        query_vector = (await self.ai_provider.embed_texts_async([query]))[0]
+        query_filter = _content_hash_filter(content_hash, content_hashes)
+        try:
+            response = await async_client.query_points(
+                collection_name=self.collection_name,
+                query=query_vector,
+                query_filter=query_filter,
+                search_params=_vector_search_params(),
+                limit=top_k,
+                with_payload=True,
+            )
+        except Exception:
+            return []
+        scored_points: list[tuple[str, float]] = []
+        for point in response.points:
+            payload = point.payload or {}
+            visual_id = payload.get("visual_id")
+            if visual_id:
+                scored_points.append((str(visual_id), float(point.score)))
+        if not scored_points:
+            return []
+        records = self._load_records_by_visual_ids(
+            visual_ids=[vid for vid, _ in scored_points],
+            content_hash=content_hash,
+            content_hashes=content_hashes,
+        )
+        by_id = {record.visual_id: record for record in records}
+        results = [
+            _record_to_result(
+                by_id[vid],
+                score=score,
+                dense_score=score,
+                lexical_score=None,
+                hybrid_score=None,
+                retrieval_mode="visual_dense",
+            )
+            for vid, score in scored_points
+            if vid in by_id
+        ]
+        return results[:top_k]
 
     def _dense_search(
         self,

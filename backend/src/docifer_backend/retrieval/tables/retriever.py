@@ -16,9 +16,13 @@ from docifer_backend.providers.factory import get_ai_provider
 from docifer_backend.retrieval.bm25 import tokenize
 from docifer_backend.retrieval.tables.models import TableEvidenceRecord
 from docifer_backend.retrieval.tables.schemas import TableQueryResult
-from docifer_backend.retrieval.vector_store import search_table_evidence_points
+from docifer_backend.retrieval.vector_store import (
+    _content_hash_filter,
+    _vector_search_params,
+    search_table_evidence_points,
+)
 from docifer_backend.storage.database import get_session_factory
-from docifer_backend.storage.qdrant import get_qdrant_client
+from docifer_backend.storage.qdrant import get_async_qdrant_client, get_qdrant_client
 
 
 BOOST_TERMS = [
@@ -86,6 +90,56 @@ class TableRetriever:
                 top_k=top_k,
             )
         raise ValueError(f"Unsupported table retrieval mode: {retrieval_mode}")
+
+    async def search_async(
+        self,
+        query: str,
+        *,
+        top_k: int = 4,
+        content_hash: str | None = None,
+        content_hashes: list[str] | None = None,
+    ) -> list[TableQueryResult]:
+        async_client = get_async_qdrant_client()
+        query_vector = (await self.ai_provider.embed_texts_async([query]))[0]
+        query_filter = _content_hash_filter(content_hash, content_hashes)
+        try:
+            response = await async_client.query_points(
+                collection_name=self.collection_name,
+                query=query_vector,
+                query_filter=query_filter,
+                search_params=_vector_search_params(),
+                limit=top_k,
+                with_payload=True,
+            )
+        except Exception:
+            return []
+        scored_points: list[tuple[str, float]] = []
+        for point in response.points:
+            payload = point.payload or {}
+            table_id = payload.get("table_id")
+            if table_id:
+                scored_points.append((str(table_id), float(point.score)))
+        if not scored_points:
+            return []
+        records = self._load_records_by_table_ids(
+            table_ids=[table_id for table_id, _ in scored_points],
+            content_hash=content_hash,
+            content_hashes=content_hashes,
+        )
+        by_table_id = {record.table_id: record for record in records}
+        results = [
+            _record_to_result(
+                by_table_id[table_id],
+                score=score,
+                dense_score=score,
+                lexical_score=None,
+                hybrid_score=None,
+                retrieval_mode="table_dense",
+            )
+            for table_id, score in scored_points
+            if table_id in by_table_id
+        ]
+        return results[:top_k]
 
     def _dense_search(
         self,
