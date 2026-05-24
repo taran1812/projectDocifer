@@ -16,6 +16,7 @@ from docifer_backend.providers.base import (
     VisualInterpretationResult,
 )
 from docifer_backend.providers.factory import get_ai_provider
+from docifer_backend.providers.openai_provider import ANSWER_PROMPT_VERSION
 from docifer_backend.retrieval.bm25 import BM25Retriever
 from docifer_backend.retrieval.document_registry import (
     DocumentScopeResolver,
@@ -392,6 +393,7 @@ class TextQueryService:
                 table_results=table_results,
                 visual_results=visual_results,
             ),
+            "answer_prompt_version": ANSWER_PROMPT_VERSION,
         }
         debug.update(vector_search_debug(collection_name=self.collection_name))
         debug.update(rerank_debug)

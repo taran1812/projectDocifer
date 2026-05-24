@@ -175,3 +175,28 @@ def test_with_openai_retry_backoff_timing():
     assert len(sleep_calls) == 2
     assert 1.5 <= sleep_calls[0] <= 2.5   # 2^1 ± 0.5
     assert 3.5 <= sleep_calls[1] <= 4.5   # 2^2 ± 0.5
+
+
+def test_generate_grounded_answer_prompt_contains_completeness_rules():
+    from docifer_backend.providers.openai_provider import OpenAIProvider, ANSWER_PROMPT_VERSION
+    import unittest.mock as mock
+
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured['instructions'] = kwargs.get('instructions', '')
+        return mock.MagicMock(output_text="Answer [C1].")
+
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider.client = mock.MagicMock()
+    provider.client.responses.create.side_effect = lambda **kwargs: fake_create(**kwargs)
+    provider.answer_model = "test-model"
+
+    from docifer_backend.providers.base import GroundingEvidence
+    provider.generate_grounded_answer(
+        question="What are the strategies?",
+        evidence=[GroundingEvidence(citation_id="C1", text="The 1i, 2i, 3i strategies.", source="doc.pdf")],
+    )
+
+    assert "completeness" in captured['instructions'].lower() or "all parts" in captured['instructions'].lower()
+    assert ANSWER_PROMPT_VERSION == "phase12_completeness_v1"

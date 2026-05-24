@@ -456,3 +456,26 @@ def test_query_debug_has_retry_fields_when_no_retry(session_factory, tmp_path):
     assert outcome.debug["abstention_retry_triggered"] is False
     assert outcome.debug["retry_top_k"] is None
     assert outcome.debug["retry_answer_was_abstention"] is None
+
+
+def test_query_debug_includes_answer_prompt_version(session_factory, tmp_path):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    client = QdrantClient(":memory:")
+    provider = FakeAIProvider()
+    _seed_index(provider, session_factory, client, canonical_path, content_hash, source_path)
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query(
+        question="What strategy is recommended?",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="dense",
+        evidence_mode="text",
+    )
+
+    assert outcome.debug.get("answer_prompt_version") is not None
+    assert outcome.debug["answer_prompt_version"] == "phase12_completeness_v1"
