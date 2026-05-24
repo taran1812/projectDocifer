@@ -32,7 +32,7 @@ router = APIRouter(tags=["retrieval"])
 
 
 @router.post("/index/text", response_model=TextIndexResponse)
-def index_text(request: TextIndexRequest) -> TextIndexResponse:
+async def index_text(request: TextIndexRequest) -> TextIndexResponse:
     outcome = TextIndexingService().index_canonical_document(
         request.canonical_path,
         force_reindex=request.force_reindex,
@@ -41,7 +41,7 @@ def index_text(request: TextIndexRequest) -> TextIndexResponse:
 
 
 @router.post("/index/tables", response_model=TableIndexResponse)
-def index_tables(request: TableIndexRequest) -> TableIndexResponse:
+async def index_tables(request: TableIndexRequest) -> TableIndexResponse:
     outcome = TableIndexingService().index_canonical_document(
         request.canonical_path,
         force_reindex=request.force_reindex,
@@ -241,7 +241,7 @@ def _visual_evidence_responses(
 
 
 @router.post("/index/visuals", response_model=VisualIndexResponse)
-def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
+async def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
     outcome = VisualIndexingService().index_canonical_document(
         request.canonical_path,
         force_reindex=request.force_reindex,
@@ -250,7 +250,7 @@ def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
 
 
 @router.post("/retrieve/visuals", response_model=VisualRetrieveResponse)
-def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResponse:
+async def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResponse:
     retriever = VisualRetriever()
     results = retriever.search(
         query=request.question,

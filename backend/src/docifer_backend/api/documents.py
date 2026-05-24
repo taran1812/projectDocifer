@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=DocumentListResponse)
-def list_documents(
+async def list_documents(
     q: str | None = None,
     doc_id: str | None = None,
     quality_status: str | None = None,
@@ -51,34 +51,34 @@ def list_documents(
 
 
 @router.get("/by-doc-id/{doc_id}", response_model=DocumentDetailResponse)
-def get_document_by_doc_id(doc_id: str) -> DocumentDetailResponse:
+async def get_document_by_doc_id(doc_id: str) -> DocumentDetailResponse:
     return _run_service_call(lambda: DocumentRegistryService().get_by_doc_id(doc_id))
 
 
 @router.get("/by-content-hash/{content_hash}", response_model=DocumentDetailResponse)
-def get_document_by_content_hash(content_hash: str) -> DocumentDetailResponse:
+async def get_document_by_content_hash(content_hash: str) -> DocumentDetailResponse:
     return _run_service_call(
         lambda: DocumentRegistryService().get_by_content_hash(content_hash)
     )
 
 
 @router.get("/{document_id}/indexes", response_model=DocumentIndexStatusResponse)
-def get_document_indexes(document_id: str) -> DocumentIndexStatusResponse:
+async def get_document_indexes(document_id: str) -> DocumentIndexStatusResponse:
     return _run_service_call(lambda: DocumentRegistryService().get_indexes(document_id))
 
 
 @router.get("/{document_id}/audit", response_model=DocumentAuditResponse)
-def get_document_audit(document_id: str) -> DocumentAuditResponse:
+async def get_document_audit(document_id: str) -> DocumentAuditResponse:
     return _run_service_call(lambda: DocumentRegistryService().get_audit(document_id))
 
 
 @router.get("/{document_id}/artifacts", response_model=DocumentArtifactsResponse)
-def get_document_artifacts(document_id: str) -> DocumentArtifactsResponse:
+async def get_document_artifacts(document_id: str) -> DocumentArtifactsResponse:
     return _run_service_call(lambda: DocumentRegistryService().get_artifacts(document_id))
 
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
-def get_document(document_id: str) -> DocumentDetailResponse:
+async def get_document(document_id: str) -> DocumentDetailResponse:
     return _run_service_call(lambda: DocumentRegistryService().get_document(document_id))
 
 

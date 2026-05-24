@@ -11,7 +11,7 @@ router = APIRouter(prefix="/ingestion", tags=["ingestion"])
     response_model=IngestionJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobResponse:
+async def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobResponse:
     try:
         outcome = IngestionService().ingest_pdf(
             request.source_path,
@@ -26,7 +26,7 @@ def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobResponse:
 
 
 @router.get("/jobs/{job_id}", response_model=IngestionJobResponse)
-def get_ingestion_job(job_id: str) -> IngestionJobResponse:
+async def get_ingestion_job(job_id: str) -> IngestionJobResponse:
     outcome = IngestionService().get_job(job_id)
     if outcome is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion job not found.")

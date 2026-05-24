@@ -11,7 +11,7 @@ router = APIRouter(prefix="/vector", tags=["vector"])
 
 
 @router.get("/collections")
-def list_collections() -> dict:
+async def list_collections() -> dict:
     return {
         "collections": list_vector_collection_stats(client=get_qdrant_client()),
         "debug": vector_search_config_debug(),
@@ -19,7 +19,7 @@ def list_collections() -> dict:
 
 
 @router.get("/collections/{collection_name}/stats")
-def collection_stats(collection_name: str) -> dict:
+async def collection_stats(collection_name: str) -> dict:
     try:
         return get_vector_collection_stats(
             collection_name=collection_name,

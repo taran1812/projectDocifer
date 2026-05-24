@@ -12,7 +12,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-def health_check() -> dict[str, str]:
+async def health_check() -> dict[str, str]:
     """Liveness check: confirms the API process is running."""
     settings = get_settings()
 
@@ -24,7 +24,7 @@ def health_check() -> dict[str, str]:
 
 
 @router.get("/ready")
-def readiness_check() -> JSONResponse:
+async def readiness_check() -> JSONResponse:
     """Readiness check: confirms critical local dependencies are reachable."""
     database_ready = check_database_connection()
     qdrant_ready = check_qdrant_connection()
