@@ -1,10 +1,13 @@
 from docifer_backend.config.settings import get_settings
 from docifer_backend.config.paths import resolve_project_path
+import asyncio
 import json
 import base64
 import random
 import time
 from pathlib import Path
+
+from openai import OpenAI, AsyncOpenAI
 
 from docifer_backend.providers.base import (
     CitationGroundingVerdict,
@@ -37,6 +40,19 @@ def _with_openai_retry(fn, max_retries: int = 2):
             time.sleep(max(0, sleep))
 
 
+async def _with_openai_retry_async(coro_fn, max_retries: int = 2):
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn()
+        except Exception as exc:
+            if not _is_rate_limit_error(exc):
+                raise
+            if attempt == max_retries:
+                raise ProviderRateLimitError(str(exc)) from exc
+            sleep = (2 ** (attempt + 1)) + random.uniform(-0.5, 0.5)
+            await asyncio.sleep(max(0, sleep))
+
+
 class OpenAIProvider:
     def __init__(
         self,
@@ -51,9 +67,8 @@ class OpenAIProvider:
         if not resolved_api_key:
             raise RuntimeError("OPENAI_API_KEY is required for the OpenAI provider.")
 
-        from openai import OpenAI
-
         self.client = OpenAI(api_key=resolved_api_key)
+        self.async_client = AsyncOpenAI(api_key=resolved_api_key)
         self.embedding_model = embedding_model or settings.openai_embedding_model
         self.answer_model = answer_model or settings.openai_answer_model
         self.vision_model = vision_model or settings.openai_vision_model
@@ -226,6 +241,182 @@ class OpenAIProvider:
             max_output_tokens=1000,
         ))
 
+        output_text = (getattr(response, "output_text", None) or "").strip()
+        try:
+            payload = json.loads(_strip_json_fence(output_text))
+        except json.JSONDecodeError:
+            return _visual_abstention_result(
+                f"Vision provider returned non-JSON output: {output_text[:500]}",
+                visual_evidence,
+            )
+        return _parse_visual_interpretation_payload(payload, visual_evidence)
+
+    async def embed_texts_async(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self.embedding_batch_size):
+            batch = texts[start:start + self.embedding_batch_size]
+            response = await _with_openai_retry_async(
+                lambda b=batch: self.async_client.embeddings.create(
+                    model=self.embedding_model, input=b
+                )
+            )
+            embeddings.extend(item.embedding for item in response.data)
+        return embeddings
+
+    async def generate_grounded_answer_async(
+        self,
+        *,
+        question: str,
+        evidence: list[GroundingEvidence],
+    ) -> str:
+        evidence_text = _format_evidence_sections(evidence)
+        response = await _with_openai_retry_async(
+            lambda: self.async_client.responses.create(
+                model=self.answer_model,
+                instructions=(
+                    "You are Docifer's grounded document QA system. Answer only from the "
+                    "provided evidence. Cite every factual claim with citation IDs "
+                    "like [C1], [T1], or [V1].\n\n"
+                    "Abstention rules:\n"
+                    "- Abstain ONLY when the retrieved evidence has no direct support for "
+                    "the question, contradicts itself, or is missing the key entity or "
+                    "metric needed to answer.\n"
+                    "- If the question asks for a specific entity, metric, number, date, "
+                    "name, or comparison and the evidence does not contain that exact "
+                    "target, say you do not have enough evidence to answer. Do not "
+                    "substitute loosely related context.\n"
+                    "- If the question is about personal, private, or sensitive information "
+                    "that would not appear in a corporate or government document, say you "
+                    "do not have enough evidence to answer.\n"
+                    "- Do NOT abstain merely because the evidence is incomplete or partial.\n"
+                    "- If the evidence supports a partial but useful answer, answer only "
+                    "the supported part and cite it.\n"
+                    "- When evidence is partial, use cautious wording: "
+                    "'Based on the retrieved evidence...', 'The document states...', or "
+                    "'The available evidence indicates...'.\n"
+                    "- When a computed table observation is provided, use it as the preferred "
+                    "table fact and cite only the table ID that supports that observation.\n"
+                    "- When a visual observation is provided, cite only the visual ID that "
+                    "supports the visible claim and do not invent unreadable chart values."
+                ),
+                input=(
+                    f"Question:\n{question}\n\n"
+                    f"Evidence:\n{evidence_text}\n\n"
+                    "Write a concise grounded answer."
+                ),
+                max_output_tokens=500,
+            )
+        )
+        output_text = getattr(response, "output_text", None)
+        if output_text:
+            return output_text.strip()
+        return str(response).strip()
+
+    async def verify_citation_grounding_async(
+        self,
+        *,
+        question: str,
+        answer: str,
+        evidence: list[GroundingEvidence],
+    ) -> CitationGroundingVerdict:
+        evidence_text = _format_evidence_sections(evidence)
+        response = await _with_openai_retry_async(
+            lambda: self.async_client.responses.create(
+                model=self.answer_model,
+                instructions=(
+                    "You are Docifer's citation-grounding verifier. Compare the "
+                    "answer against the evidence. Return only valid JSON with keys: "
+                    "verdict, supported_citation_ids, weak_citation_ids, "
+                    "unsupported_claims, reasoning, revised_answer. Verdict must be "
+                    "supported, partially_supported, or unsupported. If revision is "
+                    "not needed, revised_answer must be null. If you do provide a "
+                    "revised_answer, preserve all citation markers ([C1], [T1], [V1], "
+                    "etc.) from the original answer."
+                ),
+                input=(
+                    f"Question:\n{question}\n\n"
+                    f"Answer:\n{answer}\n\n"
+                    f"Evidence:\n{evidence_text}\n\n"
+                    "Verify whether the answer's cited claims are semantically supported."
+                ),
+                max_output_tokens=700,
+            )
+        )
+        output_text = (getattr(response, "output_text", None) or "").strip()
+        try:
+            payload = json.loads(_strip_json_fence(output_text))
+        except json.JSONDecodeError:
+            return CitationGroundingVerdict(
+                verdict="partially_supported",
+                supported_citation_ids=[],
+                weak_citation_ids=[],
+                unsupported_claims=[],
+                reasoning=f"Verifier returned non-JSON output: {output_text[:500]}",
+                revised_answer=None,
+            )
+        return CitationGroundingVerdict(
+            verdict=str(payload.get("verdict") or "partially_supported"),
+            supported_citation_ids=list(payload.get("supported_citation_ids") or []),
+            weak_citation_ids=list(payload.get("weak_citation_ids") or []),
+            unsupported_claims=list(payload.get("unsupported_claims") or []),
+            reasoning=str(payload.get("reasoning") or ""),
+            revised_answer=payload.get("revised_answer"),
+        )
+
+    async def interpret_visual_evidence_async(
+        self,
+        *,
+        question: str,
+        visual_evidence: list[VisualEvidenceInput],
+    ) -> VisualInterpretationResult:
+        if not visual_evidence:
+            return VisualInterpretationResult(
+                status="abstained",
+                answer="I do not have visual evidence to answer this question.",
+                observations=[],
+                used_citation_ids=[],
+                abstain_reason="No visual evidence was provided.",
+                reasoning="Visual interpretation requires at least one retrieved visual candidate.",
+            )
+        content: list[dict] = [
+            {
+                "type": "input_text",
+                "text": _visual_interpretation_prompt(question, visual_evidence),
+            }
+        ]
+        for item in visual_evidence:
+            data_url = _image_data_url(item.artifact_path)
+            if data_url:
+                content.append({"type": "input_image", "image_url": data_url})
+        if len(content) == 1:
+            return _visual_abstention_result(
+                "No readable visual artifacts were available on disk.",
+                visual_evidence,
+            )
+        response = await _with_openai_retry_async(
+            lambda: self.async_client.responses.create(
+                model=self.vision_model,
+                instructions=(
+                    "You are Docifer's narrow visual evidence interpreter. Read only "
+                    "the provided visual candidates and metadata. Return structured "
+                    "JSON that matches the supplied schema. Do not infer values that "
+                    "are not legible. If the relevant chart, labels, or numbers are "
+                    "unclear, abstain safely."
+                ),
+                input=[{"role": "user", "content": content}],
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "docifer_visual_interpretation",
+                        "strict": True,
+                        "schema": _VISUAL_INTERPRETATION_SCHEMA,
+                    }
+                },
+                max_output_tokens=1000,
+            )
+        )
         output_text = (getattr(response, "output_text", None) or "").strip()
         try:
             payload = json.loads(_strip_json_fence(output_text))

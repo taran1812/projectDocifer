@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from docifer_backend.providers.base import ProviderRateLimitError, VisualEvidenceInput
 from docifer_backend.providers.openai_provider import OpenAIProvider, _with_openai_retry
@@ -202,3 +202,53 @@ def test_generate_grounded_answer_prompt_contains_abstention_rules():
 
     assert "abstain" in captured['instructions'].lower()
     assert ANSWER_PROMPT_VERSION == "phase12_baseline_v1"
+
+
+@pytest.mark.asyncio
+async def test_async_embed_texts_returns_embeddings():
+    with patch("docifer_backend.providers.openai_provider.get_settings") as mock_settings:
+        mock_settings.return_value = MagicMock(
+            openai_api_key="test-key",
+            openai_embedding_model="text-embedding-3-small",
+            openai_answer_model="gpt-4o-mini",
+            openai_vision_model="gpt-4o-mini",
+            openai_embedding_batch_size=64,
+        )
+        with patch("docifer_backend.providers.openai_provider.OpenAI"), \
+             patch("docifer_backend.providers.openai_provider.AsyncOpenAI") as mock_async_cls:
+            mock_async_client = MagicMock()
+            mock_async_cls.return_value = mock_async_client
+            provider = OpenAIProvider()
+
+    mock_response = MagicMock()
+    mock_response.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+    mock_async_client.embeddings.create = AsyncMock(return_value=mock_response)
+
+    result = await provider.embed_texts_async(["hello"])
+    assert result == [[0.1, 0.2, 0.3]]
+
+
+@pytest.mark.asyncio
+async def test_async_generate_grounded_answer_returns_text():
+    with patch("docifer_backend.providers.openai_provider.get_settings") as mock_settings:
+        mock_settings.return_value = MagicMock(
+            openai_api_key="test-key",
+            openai_embedding_model="text-embedding-3-small",
+            openai_answer_model="gpt-4o-mini",
+            openai_vision_model="gpt-4o-mini",
+            openai_embedding_batch_size=64,
+        )
+        with patch("docifer_backend.providers.openai_provider.OpenAI"), \
+             patch("docifer_backend.providers.openai_provider.AsyncOpenAI") as mock_async_cls:
+            mock_async_client = MagicMock()
+            mock_async_cls.return_value = mock_async_client
+            provider = OpenAIProvider()
+
+    mock_response = MagicMock()
+    mock_response.output_text = "The answer is 42. [C1]"
+    mock_async_client.responses.create = AsyncMock(return_value=mock_response)
+
+    from docifer_backend.providers.base import GroundingEvidence
+    evidence = [GroundingEvidence(citation_id="C1", text="42 is the answer.", source="doc.pdf p1")]
+    result = await provider.generate_grounded_answer_async(question="What is the answer?", evidence=evidence)
+    assert result == "The answer is 42. [C1]"

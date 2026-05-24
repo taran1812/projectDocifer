@@ -8,3 +8,10 @@ def get_ai_provider() -> AIProvider:
     if settings.llm_provider == "openai":
         return OpenAIProvider()
     raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
+
+
+def get_async_ai_provider():
+    settings = get_settings()
+    if settings.llm_provider == "openai":
+        return OpenAIProvider()
+    raise ValueError(f"Unknown provider: {settings.llm_provider}")

@@ -84,5 +84,35 @@ class AIProvider(Protocol):
         ...
 
 
+class AsyncAIProvider(Protocol):
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        ...
+
+    async def generate_grounded_answer(
+        self,
+        *,
+        question: str,
+        evidence: list[GroundingEvidence],
+    ) -> str:
+        ...
+
+    async def verify_citation_grounding(
+        self,
+        *,
+        question: str,
+        answer: str,
+        evidence: list[GroundingEvidence],
+    ) -> CitationGroundingVerdict:
+        ...
+
+    async def interpret_visual_evidence(
+        self,
+        *,
+        question: str,
+        visual_evidence: list[VisualEvidenceInput],
+    ) -> VisualInterpretationResult:
+        ...
+
+
 class ProviderRateLimitError(Exception):
     """Raised when a provider rate limit is exceeded after all retries."""
