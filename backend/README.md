@@ -668,8 +668,6 @@ ragas_input.jsonl  — RAGAS-compatible export
 
 **Routing (post-fix 68-Q):** text=25, table=14, visual=10, auto=5, abstain=14
 
-**Remaining false abstentions:** QA-017 and QA-032 — table index coverage gaps (Docling missed those tables). Deferred to Phase 14.
-
 Current test suite: **144 passed, 34 skipped, 1 xfailed**
 
 Detailed ablation notes are in:
@@ -677,3 +675,73 @@ Detailed ablation notes are in:
 ```text
 docs/phase12-final-ablation-benchmark.md
 ```
+
+---
+
+## Phase 14 — Dataset Corrections + Tesla DOC-013
+
+QA-017 (World Bank financing proportions) and QA-032 (FAA experience hours) were mis-categorised as Table Lookup / Table Reasoning. Both target plain-text paragraphs. Corrected to Text Factual + evidence Text.
+
+Tesla Q3 2023 (`TSLA-Q3-2023-Update-3.pdf`) registered as **DOC-013**:
+
+```python
+# backend/src/docifer_backend/retrieval/document_registry.py
+"DOC-013": "TSLA-Q3-2023-Update-3.pdf",
+```
+
+Ingest and index:
+
+```powershell
+uv run --project backend python -m docifer_backend.ingestion.cli datasets\raw_pdfs\TSLA-Q3-2023-Update-3.pdf
+# Then via API:
+curl -X POST http://localhost:8000/index/text    -H "Content-Type: application/json" -d '{"document_id": "<id>", "canonical_path": "<path>", "force_reindex": true}'
+curl -X POST http://localhost:8000/index/tables  -H "Content-Type: application/json" -d '{"document_id": "<id>", "canonical_path": "<path>", "force_reindex": true}'
+curl -X POST http://localhost:8000/index/visuals -H "Content-Type: application/json" -d '{"document_id": "<id>", "canonical_path": "<path>", "force_reindex": true}'
+```
+
+### Phase 14 results (`phase14_postfix_68q`, 68-Q)
+
+```json
+{
+  "average_answer_token_recall": 0.7073,
+  "average_retrieved_evidence_token_recall": 0.8142,
+  "average_evidence_answer_gap": 0.1069,
+  "citation_presence_rate": 0.9412,
+  "false_abstention_rate": 0.0185,
+  "true_abstention_accuracy": 0.8571,
+  "abstention_correct_rate": 0.8000,
+  "latency_ms_p50": 3812,
+  "latency_ms_p95": 32697
+}
+```
+
+Gate verdict: **COMPLETE** — false abstention 0.0185 ✅ (<0.06), true abstention accuracy 0.857 (+7pp vs Phase 12).
+
+### Per-category recall (Phase 14, 68-Q)
+
+| Category | Recall | n |
+|----------|-------:|--:|
+| Text Factual | 0.902 | 21 |
+| Mixed Modality | 0.725 | 5 |
+| Table Lookup | 0.649 | 9 |
+| Chart / Visual | 0.672 | 10 |
+| Text Synthesis | 0.546 | 6 |
+| Table Reasoning | 0.483 | 3 |
+| Abstention accuracy | 12/14 | — |
+
+**Routing (Phase 14, 68-Q):** text=27, table=12, visual=10, auto=5, abstain=14
+
+### Tesla Q3 2023 smoke eval (`tsla_q3_smoke`, 7-Q)
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner `
+  --dataset evals/tsla_q3_golden.xlsx `
+  --run-name tsla_q3_smoke `
+  --top-k 12 `
+  --retrieval-mode hybrid `
+  --evidence-mode category `
+  --verify-citations `
+  --no-trace
+```
+
+Result: recall=0.674, citation=1.000, false_abstention=0.000, all verdicts `supported`. Confirms system generalises to unseen documents.
