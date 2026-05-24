@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 import logging
 from typing import TypeVar
@@ -35,7 +36,7 @@ async def list_documents(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> DocumentListResponse:
-    return _run_service_call(
+    return await _run_service_call(
         lambda: DocumentRegistryService().list_documents(
             q=q,
             doc_id=doc_id,
@@ -52,39 +53,39 @@ async def list_documents(
 
 @router.get("/by-doc-id/{doc_id}", response_model=DocumentDetailResponse)
 async def get_document_by_doc_id(doc_id: str) -> DocumentDetailResponse:
-    return _run_service_call(lambda: DocumentRegistryService().get_by_doc_id(doc_id))
+    return await _run_service_call(lambda: DocumentRegistryService().get_by_doc_id(doc_id))
 
 
 @router.get("/by-content-hash/{content_hash}", response_model=DocumentDetailResponse)
 async def get_document_by_content_hash(content_hash: str) -> DocumentDetailResponse:
-    return _run_service_call(
+    return await _run_service_call(
         lambda: DocumentRegistryService().get_by_content_hash(content_hash)
     )
 
 
 @router.get("/{document_id}/indexes", response_model=DocumentIndexStatusResponse)
 async def get_document_indexes(document_id: str) -> DocumentIndexStatusResponse:
-    return _run_service_call(lambda: DocumentRegistryService().get_indexes(document_id))
+    return await _run_service_call(lambda: DocumentRegistryService().get_indexes(document_id))
 
 
 @router.get("/{document_id}/audit", response_model=DocumentAuditResponse)
 async def get_document_audit(document_id: str) -> DocumentAuditResponse:
-    return _run_service_call(lambda: DocumentRegistryService().get_audit(document_id))
+    return await _run_service_call(lambda: DocumentRegistryService().get_audit(document_id))
 
 
 @router.get("/{document_id}/artifacts", response_model=DocumentArtifactsResponse)
 async def get_document_artifacts(document_id: str) -> DocumentArtifactsResponse:
-    return _run_service_call(lambda: DocumentRegistryService().get_artifacts(document_id))
+    return await _run_service_call(lambda: DocumentRegistryService().get_artifacts(document_id))
 
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 async def get_document(document_id: str) -> DocumentDetailResponse:
-    return _run_service_call(lambda: DocumentRegistryService().get_document(document_id))
+    return await _run_service_call(lambda: DocumentRegistryService().get_document(document_id))
 
 
-def _run_service_call(operation: Callable[[], ResponseT]) -> ResponseT:
+async def _run_service_call(operation: Callable[[], ResponseT]) -> ResponseT:
     try:
-        return operation()
+        return await asyncio.to_thread(operation)
     except DocumentRegistryNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DocumentRegistryAmbiguousError as exc:

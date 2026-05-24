@@ -745,3 +745,74 @@ uv run --project backend python -m docifer_backend.evaluation.runner `
 ```
 
 Result: recall=0.674, citation=1.000, false_abstention=0.000, all verdicts `supported`. Confirms system generalises to unseen documents.
+
+---
+
+## Phase 15A async and test hardening
+
+Phase 15A prepared the backend for frontend work by tightening async route behavior and making root-level pytest execution reliable.
+
+### What changed
+
+- Added root `pytest.ini` so `uv run --project backend pytest` discovers backend tests with the right `pythonpath`.
+- Wrapped remaining blocking FastAPI route work with `asyncio.to_thread`, including document registry, ingestion, indexing, visual retrieval, vector stats, and readiness checks.
+- Moved service construction for heavy synchronous services into the thread boundary so concurrent requests do not serialize on constructor work.
+- Added concurrent ASGI route tests covering document listing and text indexing request behavior.
+- Preserved existing API response shapes and error handling.
+
+### Validation
+
+Unit suite:
+
+```powershell
+uv run --project backend pytest --basetemp backend/.pytest_tmp
+```
+
+Expected current result:
+
+```text
+149 passed, 34 skipped, 1 xfailed
+```
+
+Integration suite with Docker Postgres/Qdrant:
+
+```powershell
+$env:RUN_INTEGRATION_TESTS = "true"
+uv run --project backend pytest backend/tests/integration -v --basetemp backend/.pytest_integration_tmp
+```
+
+Expected current result:
+
+```text
+34 passed
+```
+
+68-question regression eval:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner `
+  --run-name phase15a_async_hardening_68q `
+  --top-k 12 `
+  --retrieval-mode hybrid `
+  --evidence-mode category `
+  --verify-citations `
+  --no-trace
+```
+
+Current result:
+
+```json
+{
+  "evaluated": 68,
+  "failed": 0,
+  "average_expected_answer_token_recall": 0.6234,
+  "average_retrieved_evidence_token_recall": 0.8243,
+  "citation_presence_rate": 0.9559,
+  "false_abstention_rate": 0.037,
+  "true_abstention_accuracy": 0.8571,
+  "latency_ms_p50": 3946.18,
+  "latency_ms_p95": 47704.08
+}
+```
+
+The quality gate is healthy. P95 latency remains the main backend risk to watch before a polished frontend.

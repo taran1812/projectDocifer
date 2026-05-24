@@ -15,9 +15,8 @@ router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 )
 async def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobResponse:
     try:
-        service = IngestionService()
         outcome = await asyncio.to_thread(
-            service.ingest_pdf,
+            _ingest_pdf,
             request.source_path,
             force_reprocess=request.force_reprocess,
         )
@@ -31,7 +30,18 @@ async def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobRespons
 
 @router.get("/jobs/{job_id}", response_model=IngestionJobResponse)
 async def get_ingestion_job(job_id: str) -> IngestionJobResponse:
-    outcome = IngestionService().get_job(job_id)
+    outcome = await asyncio.to_thread(_get_ingestion_job, job_id)
     if outcome is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion job not found.")
     return IngestionJobResponse(**outcome.__dict__)
+
+
+def _ingest_pdf(source_path: str, *, force_reprocess: bool):
+    return IngestionService().ingest_pdf(
+        source_path,
+        force_reprocess=force_reprocess,
+    )
+
+
+def _get_ingestion_job(job_id: str):
+    return IngestionService().get_job(job_id)

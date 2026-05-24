@@ -79,3 +79,44 @@ Table Lookup and Table Reasoning recall gains are due to QA-017/032 leaving thos
 - **Chart / Visual (0.672)**: slight regression from Phase 12 (0.732) — likely stochastic; visual chart reading limited to text/table evidence backing
 - **Table Reasoning (0.483)**: multi-step arithmetic not covered by Phase 7C
 - **Evidence-answer synthesis gap ~0.107**: retriever finds facts, LLM doesn't always cite all of them
+
+---
+
+## Phase 15A: async/test hardening before frontend
+
+Hardened the backend API and test setup before starting frontend work.
+
+### Backend changes
+
+- Added root `pytest.ini` so root-level pytest commands resolve backend tests and integration helpers correctly.
+- Wrapped remaining blocking async route calls with `asyncio.to_thread`.
+- Offloaded heavy service construction for ingestion, indexing, query setup, document registry, vector stats, visual retrieval, and readiness checks.
+- Added concurrent ASGI request regression tests for document registry and text indexing routes.
+- Kept existing API contracts intact.
+
+### Validation results
+
+| Gate | Result |
+|------|--------|
+| Root backend suite | 149 passed, 34 skipped, 1 xfailed |
+| Real integration suite | 34 passed against Docker Postgres/Qdrant |
+| 68-Q regression eval | 68 evaluated, 0 failed |
+| Graphify update | Completed after code changes |
+
+68-Q regression run: `phase15a_async_hardening_68q`
+
+```json
+{
+  "average_expected_answer_token_recall": 0.6234,
+  "average_retrieved_evidence_token_recall": 0.8243,
+  "citation_presence_rate": 0.9559,
+  "false_abstention_rate": 0.037,
+  "true_abstention_accuracy": 0.8571,
+  "latency_ms_p50": 3946.18,
+  "latency_ms_p95": 47704.08
+}
+```
+
+### Current status
+
+Phase 15A is ready to commit. The backend quality gates pass, but P95 latency is still high and should be treated as the next performance risk before the frontend is made public-facing.

@@ -35,7 +35,8 @@ router = APIRouter(tags=["retrieval"])
 
 @router.post("/index/text", response_model=TextIndexResponse)
 async def index_text(request: TextIndexRequest) -> TextIndexResponse:
-    outcome = TextIndexingService().index_canonical_document(
+    outcome = await asyncio.to_thread(
+        _index_text_document,
         request.canonical_path,
         force_reindex=request.force_reindex,
     )
@@ -44,7 +45,8 @@ async def index_text(request: TextIndexRequest) -> TextIndexResponse:
 
 @router.post("/index/tables", response_model=TableIndexResponse)
 async def index_tables(request: TableIndexRequest) -> TableIndexResponse:
-    outcome = TableIndexingService().index_canonical_document(
+    outcome = await asyncio.to_thread(
+        _index_table_document,
         request.canonical_path,
         force_reindex=request.force_reindex,
     )
@@ -54,7 +56,8 @@ async def index_tables(request: TableIndexRequest) -> TableIndexResponse:
 @router.post("/query", response_model=QueryResponse)
 async def query_text(request: QueryRequest) -> QueryResponse:
     try:
-        outcome = await TextQueryService().query(
+        service = await asyncio.to_thread(TextQueryService)
+        outcome = await service.query(
             question=request.question,
             scope=request.scope,
             content_hash=request.content_hash,
@@ -244,7 +247,8 @@ def _visual_evidence_responses(
 
 @router.post("/index/visuals", response_model=VisualIndexResponse)
 async def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
-    outcome = VisualIndexingService().index_canonical_document(
+    outcome = await asyncio.to_thread(
+        _index_visual_document,
         request.canonical_path,
         force_reindex=request.force_reindex,
     )
@@ -253,13 +257,9 @@ async def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
 
 @router.post("/retrieve/visuals", response_model=VisualRetrieveResponse)
 async def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResponse:
-    retriever = VisualRetriever()
-    results = await asyncio.to_thread(
-        retriever.search,
-        query=request.question,
-        top_k=request.top_k,
-        content_hash=request.content_hash,
-        retrieval_mode=request.retrieval_mode,
+    results, collection_name = await asyncio.to_thread(
+        _retrieve_visual_candidates,
+        request,
     )
     candidates = [
         VisualCandidateResponse(
@@ -292,7 +292,7 @@ async def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResp
         debug = {
             "retrieved_count": len(results),
             "retrieval_mode": request.retrieval_mode,
-            **vector_search_debug(collection_name=retriever.collection_name),
+            **vector_search_debug(collection_name=collection_name),
             "scores": [
                 {
                     "visual_id": r.visual_id,
@@ -304,3 +304,37 @@ async def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResp
             ],
         }
     return VisualRetrieveResponse(candidates=candidates, debug=debug)
+
+
+def _index_text_document(canonical_path: str, *, force_reindex: bool):
+    return TextIndexingService().index_canonical_document(
+        canonical_path,
+        force_reindex=force_reindex,
+    )
+
+
+def _index_table_document(canonical_path: str, *, force_reindex: bool):
+    return TableIndexingService().index_canonical_document(
+        canonical_path,
+        force_reindex=force_reindex,
+    )
+
+
+def _index_visual_document(canonical_path: str, *, force_reindex: bool):
+    return VisualIndexingService().index_canonical_document(
+        canonical_path,
+        force_reindex=force_reindex,
+    )
+
+
+def _retrieve_visual_candidates(request: VisualRetrieveRequest):
+    retriever = VisualRetriever()
+    return (
+        retriever.search(
+            query=request.question,
+            top_k=request.top_k,
+            content_hash=request.content_hash,
+            retrieval_mode=request.retrieval_mode,
+        ),
+        getattr(retriever, "collection_name", "docifer_visual_evidence"),
+    )

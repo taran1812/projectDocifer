@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 
@@ -26,8 +28,10 @@ async def health_check() -> dict[str, str]:
 @router.get("/ready")
 async def readiness_check() -> JSONResponse:
     """Readiness check: confirms critical local dependencies are reachable."""
-    database_ready = check_database_connection()
-    qdrant_ready = check_qdrant_connection()
+    database_ready, qdrant_ready = await asyncio.gather(
+        asyncio.to_thread(check_database_connection),
+        asyncio.to_thread(check_qdrant_connection),
+    )
 
     all_ready = database_ready and qdrant_ready
 
@@ -39,7 +43,9 @@ async def readiness_check() -> JSONResponse:
         },
     }
     if qdrant_ready:
-        response_payload["checks"].update(get_qdrant_collection_checks())
+        response_payload["checks"].update(
+            await asyncio.to_thread(get_qdrant_collection_checks)
+        )
     else:
         response_payload["checks"].update(
             {
