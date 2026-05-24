@@ -25,6 +25,7 @@ LOCAL_CORPUS_FILENAMES = {
     "DOC-010": "NIST.SP.800-53r5.pdf",
     "DOC-011": "amtg_handbook.pdf",
     "DOC-012": "9789240115569-eng.pdf",
+    "DOC-013": "TSLA-Q3-2023-Update-3.pdf",
 }
 
 
