@@ -79,12 +79,12 @@ class FakeQueryService:
         )
 
 
-def test_load_golden_questions_reads_40_seeded_rows():
+def test_load_golden_questions_reads_seeded_rows():
     questions = load_golden_questions("docifer_phase1_corpus_and_golden_eval_v1.xlsx")
 
-    assert len(questions) == 40
+    assert len(questions) == 68
     assert questions[0].qa_id == "QA-001"
-    assert questions[-1].should_abstain is True
+    assert any(q.should_abstain for q in questions)
 
 
 def test_score_answer_tracks_citation_presence_and_expected_recall():
@@ -121,9 +121,9 @@ def test_evaluation_runner_writes_results_and_skips_unindexed_docs(tmp_path):
         rerank_top_n=6,
     )
 
-    assert outcome.summary["evaluated"] == 3
-    assert outcome.summary["by_status"]["evaluated"] == 3
-    assert outcome.summary["by_status"]["skipped_by_filter"] == 37
+    assert outcome.summary["evaluated"] == 5
+    assert outcome.summary["by_status"]["evaluated"] == 5
+    assert outcome.summary["by_status"]["skipped_by_filter"] == 63
     assert (tmp_path / "test-run" / "results.jsonl").exists()
     assert (tmp_path / "test-run" / "summary.json").exists()
     assert (tmp_path / "test-run" / "report.md").exists()
