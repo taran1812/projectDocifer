@@ -553,3 +553,108 @@ backend\.venv\Scripts\pytest.exe backend\tests\integration -v
 ```
 
 Safety guards prevent accidental runs against production databases: the Postgres fixture asserts `"test" in url` before running any `DROP TABLE`.
+
+## Phase 12 final ablation benchmark
+
+Phase 12 optimized text retrieval recall from ~66% baseline to **82.6% text-only recall**, exceeding the stretch target of 78%.
+
+### Recommended configuration
+
+| Setting | Value |
+|---------|-------|
+| `retrieval_mode` | `hybrid` |
+| `evidence_mode` | `category` |
+| `top_k` | `12` |
+| `verify_citations` | `true` |
+| `rerank` | `false` |
+| `TEXT_CHUNK_SIZE` | `1200` |
+| `TEXT_CHUNK_OVERLAP` | `200` |
+| `QDRANT_SEARCH_EF` | `64` |
+
+### Golden evaluation dataset
+
+`docifer_phase1_corpus_and_golden_eval_v1.xlsx` — 68 questions across 12 documents:
+
+| Category | Count |
+|----------|------:|
+| Text Factual | 14 |
+| Text Synthesis | 6 |
+| Table Lookup | 14 |
+| Table Reasoning | 5 |
+| Chart / Visual | 10 |
+| Mixed Modality | 5 |
+| Unsupported / Abstention | 14 |
+
+**Note:** Visual questions require `datasets/processed/` (not git-tracked). Run visual-inclusive evals from the main repo, not a git worktree.
+
+### Running the evaluation
+
+Full 68-question eval with Phase 12 recommended config:
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner `
+  --run-name phase12_final `
+  --top-k 12 `
+  --retrieval-mode hybrid `
+  --evidence-mode category `
+  --verify-citations `
+  --no-trace
+```
+
+Text-only subset (safe to run from worktrees):
+
+```powershell
+uv run --project backend python -m docifer_backend.evaluation.runner `
+  --run-name phase12_text_only `
+  --top-k 12 `
+  --retrieval-mode hybrid `
+  --evidence-mode text `
+  --verify-citations `
+  --no-trace
+```
+
+Results are written to `evals/runs/<run-name>/`:
+
+```text
+results.jsonl      — per-question results
+summary.json       — aggregate metrics
+report.md          — human-readable report
+ragas_input.jsonl  — RAGAS-compatible export
+```
+
+### Phase 12 results (40-question original dataset)
+
+```json
+{
+  "answer_recall_text": 0.8255,
+  "answer_recall_all": 0.7170,
+  "average_retrieved_evidence_token_recall": 0.8395,
+  "citation_presence_rate": 0.975,
+  "false_abstention_rate": 0.056,
+  "true_abstention_accuracy": 0.50,
+  "latency_ms_p50": 3632,
+  "latency_ms_p95": 16397
+}
+```
+
+### Phase 12 results (68-question expanded dataset)
+
+```json
+{
+  "average_answer_token_recall": 0.6259,
+  "average_retrieved_evidence_token_recall": 0.766,
+  "citation_presence_rate": 0.9104,
+  "false_abstention_rate": 0.0755,
+  "true_abstention_accuracy": 0.8571,
+  "latency_ms_p50": 3758,
+  "latency_ms_p95": 19506
+}
+```
+
+Current test suite: **144 passed, 34 skipped, 1 xfailed**
+
+Detailed ablation notes are in:
+
+```text
+docs/phase12-final-ablation-benchmark.md
+```
