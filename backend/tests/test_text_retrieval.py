@@ -290,6 +290,27 @@ def _fake_embedding(text: str) -> list[float]:
     ]
 
 
+def test_build_text_chunks_default_chunk_size_is_1200(tmp_path):
+    # default max_chars=1200 produces chunks whose text length <= 1200
+    canonical_path, _, _ = write_canonical_artifacts(tmp_path)
+    chunks = build_text_chunks_from_canonical(canonical_path)
+    assert all(len(c.text) <= 1200 for c in chunks)
+
+
+def test_build_text_chunks_custom_size_produces_more_chunks(tmp_path):
+    canonical_path, _, _ = write_canonical_artifacts(tmp_path)
+    chunks_large = build_text_chunks_from_canonical(canonical_path, max_chars=1200)
+    chunks_small = build_text_chunks_from_canonical(canonical_path, max_chars=300)
+    assert len(chunks_small) >= len(chunks_large)
+
+
+def test_settings_validation_rejects_overlap_gte_chunk_size():
+    from docifer_backend.config.settings import Settings
+    import pytest
+    with pytest.raises(Exception):
+        Settings(text_chunk_size=500, text_chunk_overlap=500)
+
+
 def _seed_index(provider, session_factory, qdrant_client, canonical_path, content_hash=None, source_path=None):
     """Create Document row and index a canonical artifact so queries have evidence."""
     if content_hash and source_path:

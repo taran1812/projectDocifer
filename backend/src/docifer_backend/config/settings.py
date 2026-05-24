@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,6 +56,21 @@ class Settings(BaseSettings):
     reranker_max_length: int = 512
     golden_eval_path: str = "docifer_phase1_corpus_and_golden_eval_v1.xlsx"
     eval_runs_dir: str = "evals/runs"
+
+    text_chunk_size: int = 1200
+    text_chunk_overlap: int = 200
+
+    @model_validator(mode="after")
+    def _validate_chunk_settings(self) -> "Settings":
+        if self.text_chunk_size < 200:
+            raise ValueError(f"text_chunk_size must be >= 200, got {self.text_chunk_size}")
+        if self.text_chunk_overlap < 0:
+            raise ValueError(f"text_chunk_overlap must be >= 0, got {self.text_chunk_overlap}")
+        if self.text_chunk_overlap >= self.text_chunk_size:
+            raise ValueError(
+                f"text_chunk_overlap ({self.text_chunk_overlap}) must be < text_chunk_size ({self.text_chunk_size})"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[4] / ".env",

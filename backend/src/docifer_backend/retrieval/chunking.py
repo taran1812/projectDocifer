@@ -38,6 +38,7 @@ def build_text_chunks_from_canonical(
     canonical_path: str | Path,
     *,
     max_chars: int = 1200,
+    chunk_overlap: int = 0,
 ) -> list[TextChunk]:
     canonical_path = resolve_project_path(canonical_path)
     canonical = _read_json(canonical_path)
@@ -66,8 +67,12 @@ def build_text_chunks_from_canonical(
                         source_artifact_path=display_path(canonical_path),
                     )
                 )
-                current_blocks = []
-                current_len = 0
+                if chunk_overlap > 0:
+                    carry_blocks = _carry_over_blocks(current_blocks, chunk_overlap)
+                else:
+                    carry_blocks = []
+                current_blocks = list(carry_blocks)
+                current_len = sum(len(b.text) for b in carry_blocks) + 2 * max(0, len(carry_blocks) - 1)
 
             current_blocks.append(candidate)
             current_len += candidate_len + 2
@@ -85,6 +90,18 @@ def build_text_chunks_from_canonical(
         )
 
     return chunks
+
+
+def _carry_over_blocks(blocks: list[TextBlock], overlap: int) -> list[TextBlock]:
+    """Return trailing blocks totalling approx `overlap` chars."""
+    result: list[TextBlock] = []
+    total = 0
+    for block in reversed(blocks):
+        result.insert(0, block)
+        total += len(block.text)
+        if total >= overlap:
+            break
+    return result
 
 
 def _extract_text_blocks(docling_document: dict) -> list[TextBlock]:

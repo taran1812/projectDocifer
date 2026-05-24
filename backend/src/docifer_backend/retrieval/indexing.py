@@ -51,6 +51,8 @@ class TextIndexingService:
         self.qdrant_client = qdrant_client or get_qdrant_client()
         self.collection_name = collection_name or settings.qdrant_text_collection
         self.qdrant_upsert_batch_size = settings.qdrant_upsert_batch_size
+        self.text_chunk_size = settings.text_chunk_size
+        self.text_chunk_overlap = settings.text_chunk_overlap
 
     def index_canonical_document(
         self,
@@ -58,7 +60,11 @@ class TextIndexingService:
         *,
         force_reindex: bool = False,
     ) -> TextIndexOutcome:
-        chunks = build_text_chunks_from_canonical(canonical_path)
+        chunks = build_text_chunks_from_canonical(
+            canonical_path,
+            max_chars=self.text_chunk_size,
+            chunk_overlap=self.text_chunk_overlap,
+        )
         if not chunks:
             raise ValueError("No text chunks were produced from the canonical document.")
 
