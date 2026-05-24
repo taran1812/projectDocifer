@@ -97,6 +97,21 @@ def score_answer(
     elif abstention_detected:
         abstention_correct = False
 
+    if evidence_recall.expected_count == 0:
+        retrieved_evidence_token_recall = None
+        answer_token_recall_val = None
+        evidence_answer_gap = None
+        retrieved_evidence_token_overlap_count = None
+        answer_token_overlap_count = None
+        expected_answer_token_count = None
+    else:
+        retrieved_evidence_token_recall = evidence_recall.recall
+        answer_token_recall_val = answer_recall.recall
+        evidence_answer_gap = round(evidence_recall.recall - answer_recall.recall, 4)
+        retrieved_evidence_token_overlap_count = evidence_recall.overlap_count
+        answer_token_overlap_count = answer_recall.overlap_count
+        expected_answer_token_count = evidence_recall.expected_count
+
     return EvaluationMetrics(
         answer_present=bool(answer_text),
         citation_count=citation_count,
@@ -110,12 +125,12 @@ def score_answer(
         abstention_detected=abstention_detected,
         abstention_correct=abstention_correct,
         top_score=max(retrieval_scores) if retrieval_scores else None,
-        retrieved_evidence_token_recall=evidence_recall.recall,
-        answer_token_recall=answer_recall.recall,
-        evidence_answer_gap=round(evidence_recall.recall - answer_recall.recall, 4),
-        retrieved_evidence_token_overlap_count=evidence_recall.overlap_count,
-        answer_token_overlap_count=answer_recall.overlap_count,
-        expected_answer_token_count=evidence_recall.expected_count,
+        retrieved_evidence_token_recall=retrieved_evidence_token_recall,
+        answer_token_recall=answer_token_recall_val,
+        evidence_answer_gap=evidence_answer_gap,
+        retrieved_evidence_token_overlap_count=retrieved_evidence_token_overlap_count,
+        answer_token_overlap_count=answer_token_overlap_count,
+        expected_answer_token_count=expected_answer_token_count,
     )
 
 

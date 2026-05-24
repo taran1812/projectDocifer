@@ -242,9 +242,12 @@ class EvaluationRunner:
                 )
                 evidence_texts = (
                     [chunk.text for chunk in outcome.evidence]
-                    + [table.raw_text for table in table_evidence]
+                    + [(table.raw_text or "") for table in table_evidence]
                     + [
-                        " ".join(observation.extracted_facts + observation.limitations)
+                        " ".join(
+                            (getattr(observation, "extracted_facts", None) or [])
+                            + (getattr(observation, "limitations", None) or [])
+                        )
                         for observation in visual_observations
                     ]
                 )

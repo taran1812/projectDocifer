@@ -157,11 +157,14 @@ def write_markdown_report(
         non_abstain_evaluated,
         key=lambda r: r.metrics.get("retrieved_evidence_token_recall", 1.0),
     )[:5]
-    for r in worst_evidence:
-        lines.append(
-            f"- {r.qa_id} ({r.doc_id}): evidence_recall="
-            f"{r.metrics.get('retrieved_evidence_token_recall')} | {r.question[:80]}"
-        )
+    if worst_evidence:
+        for r in worst_evidence:
+            lines.append(
+                f"- {r.qa_id} ({r.doc_id}): evidence_recall="
+                f"{r.metrics.get('retrieved_evidence_token_recall')} | {r.question[:80]}"
+            )
+    else:
+        lines.append("- No data.")
 
     lines.extend(
         [
@@ -175,11 +178,14 @@ def write_markdown_report(
         key=lambda r: r.metrics.get("evidence_answer_gap", 0.0),
         reverse=True,
     )[:5]
-    for r in largest_gap:
-        lines.append(
-            f"- {r.qa_id} ({r.doc_id}): gap="
-            f"{r.metrics.get('evidence_answer_gap')} | {r.question[:80]}"
-        )
+    if largest_gap:
+        for r in largest_gap:
+            lines.append(
+                f"- {r.qa_id} ({r.doc_id}): gap="
+                f"{r.metrics.get('evidence_answer_gap')} | {r.question[:80]}"
+            )
+    else:
+        lines.append("- No data.")
 
     lines.extend(["", "## Evaluated Examples", ""])
     for result in evaluated[:5]:

@@ -212,7 +212,10 @@ def test_token_recall_empty_expected_returns_zero():
 def test_score_answer_populates_evidence_recall_fields():
     from docifer_backend.evaluation.metrics import score_answer
     from docifer_backend.evaluation.dataset import load_golden_questions
+    # question[12] has a non-empty expected_answer, so expected_count > 0
+    # Even with empty retrieved_evidence_text, recall fields are floats (not None)
     question = load_golden_questions("docifer_phase1_corpus_and_golden_eval_v1.xlsx")[12]
+    assert question.expected_answer.strip(), "test requires a question with non-empty expected_answer"
     metrics = score_answer(
         question=question,
         answer="The strategies are 1i. [C1]",
@@ -221,10 +224,44 @@ def test_score_answer_populates_evidence_recall_fields():
         retrieval_scores=[0.9],
         retrieved_evidence_text="The report describes 1i, 2i, and 3i strategies in detail.",
     )
+    # None path only triggers when expected_answer_token_count == 0 (empty/abstain).
+    # Here expected_count > 0, so all fields must be non-None (even if recall == 0.0).
     assert metrics.retrieved_evidence_token_recall is not None
     assert metrics.answer_token_recall is not None
     assert metrics.evidence_answer_gap is not None
     assert metrics.expected_answer_token_count is not None
+
+    # Verify that empty retrieved_evidence_text still yields non-None fields (recall=0.0, not None)
+    metrics_empty_evidence = score_answer(
+        question=question,
+        answer="The strategies are 1i. [C1]",
+        citation_count=1,
+        retrieved_evidence_count=0,
+        retrieval_scores=[],
+        retrieved_evidence_text="",
+    )
+    assert metrics_empty_evidence.retrieved_evidence_token_recall is not None
+    assert metrics_empty_evidence.retrieved_evidence_token_recall == 0.0
+
+
+def test_score_answer_abstain_question_has_none_recall_fields():
+    from docifer_backend.evaluation.metrics import score_answer
+    from docifer_backend.evaluation.dataset import load_golden_questions
+    # abstain questions have empty expected_answer
+    questions = load_golden_questions("docifer_phase1_corpus_and_golden_eval_v1.xlsx")
+    abstain_q = next(q for q in questions if q.should_abstain)
+    metrics = score_answer(
+        question=abstain_q,
+        answer="I do not have enough evidence.",
+        citation_count=0,
+        retrieved_evidence_count=0,
+        retrieval_scores=[],
+    )
+    # if abstain question has empty expected_answer, recall fields should be None
+    if not abstain_q.expected_answer.strip():
+        assert metrics.retrieved_evidence_token_recall is None
+        assert metrics.answer_token_recall is None
+        assert metrics.evidence_answer_gap is None
 
 
 def test_summary_includes_evidence_recall_averages():
