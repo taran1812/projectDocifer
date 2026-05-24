@@ -146,7 +146,39 @@ No-rerank baseline: `phase12_chunks1200_topk12` — answer_recall_all=0.7170, P5
 
 ## Task 10 — Expanded Dataset Benchmark
 
-TBD
+### Dataset Expansion
+
+Added 28 questions to reach 68 total:
+
+| Category | Before | Added | After |
+|----------|-------:|------:|------:|
+| Table Lookup | 5 | 9 | 14 |
+| Table Reasoning | 4 | 1 | 5 |
+| Chart / Visual | 5 | 5 | 10 |
+| Mixed Modality | 2 | 3 | 5 |
+| Unsupported / Abstention | 4 | 10 | 14 |
+| Text Factual | 14 | 0 | 14 |
+| Text Synthesis | 6 | 0 | 6 |
+| **Total** | **40** | **28** | **68** |
+
+Full-dataset routing (68 Qs): text=34, table=19, visual=10, auto=5.
+
+### Expanded Eval Run
+
+Config: `top_k=12`, `retrieval_mode=hybrid`, `evidence_mode=category`, `verify_citations=True`, `chunk_size=1200/200`
+
+Run name: `phase12_expanded_eval`
+
+| Metric | Original 40-Q | Expanded 68-Q |
+|--------|-------------:|-------------:|
+| Answer Recall (all) | 0.7170 | TBD |
+| Answer Recall (text-only) | 0.8255 | TBD |
+| Evidence Recall (all) | 0.8395 | TBD |
+| Citation % | 0.975 | TBD |
+| False Abstention (n/non-abstain) | 2/36 | TBD |
+| True Abstention Accuracy | — | TBD |
+| P50 ms | 3632 | TBD |
+| P95 ms | 16397 | TBD |
 
 ---
 
