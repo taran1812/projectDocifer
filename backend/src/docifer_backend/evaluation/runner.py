@@ -248,12 +248,14 @@ class EvaluationRunner:
                         for observation in visual_observations
                     ]
                 )
+                retrieved_evidence_text = " ".join(evidence_texts)
                 metrics = score_answer(
                     question=question,
                     answer=outcome.answer,
                     citation_count=len(citation_ids),
                     retrieved_evidence_count=len(retrieval_scores),
                     retrieval_scores=retrieval_scores,
+                    retrieved_evidence_text=retrieved_evidence_text,
                 )
                 result = EvaluationResult(
                     qa_id=question.qa_id,

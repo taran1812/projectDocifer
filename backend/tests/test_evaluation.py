@@ -189,3 +189,80 @@ def test_resolve_evidence_mode_mixed_beats_visual_in_expected():
         expected_evidence_type="visual figure and table",
     )
     assert resolve_evidence_mode(question, requested="category") == "auto"
+
+
+def test_token_recall_high_evidence_low_answer_creates_positive_gap():
+    # evidence contains all expected tokens, answer only has some
+    from docifer_backend.evaluation.metrics import token_recall
+    evidence_recall = token_recall("apple banana cherry", "apple banana cherry date")
+    answer_recall = token_recall("apple banana cherry", "apple date")
+    assert evidence_recall.recall == 1.0
+    assert answer_recall.recall < 1.0
+    assert evidence_recall.recall - answer_recall.recall > 0
+
+
+def test_token_recall_empty_expected_returns_zero():
+    from docifer_backend.evaluation.metrics import token_recall
+    result = token_recall("", "some answer text")
+    assert result.recall == 0.0
+    assert result.overlap_count == 0
+    assert result.expected_count == 0
+
+
+def test_score_answer_populates_evidence_recall_fields():
+    from docifer_backend.evaluation.metrics import score_answer
+    from docifer_backend.evaluation.dataset import load_golden_questions
+    question = load_golden_questions("docifer_phase1_corpus_and_golden_eval_v1.xlsx")[12]
+    metrics = score_answer(
+        question=question,
+        answer="The strategies are 1i. [C1]",
+        citation_count=1,
+        retrieved_evidence_count=1,
+        retrieval_scores=[0.9],
+        retrieved_evidence_text="The report describes 1i, 2i, and 3i strategies in detail.",
+    )
+    assert metrics.retrieved_evidence_token_recall is not None
+    assert metrics.answer_token_recall is not None
+    assert metrics.evidence_answer_gap is not None
+    assert metrics.expected_answer_token_count is not None
+
+
+def test_summary_includes_evidence_recall_averages():
+    # use the existing FakeQueryService/FakeRegistry to run a mini eval
+    # then check summary has the new keys
+    import tempfile, pathlib
+    from docifer_backend.evaluation.runner import EvaluationRunner
+    from types import SimpleNamespace
+
+    class FakeRegistry2:
+        def resolve(self, doc_id):
+            if doc_id == "DOC-005":
+                return SimpleNamespace(doc_id=doc_id, filename="f.pdf", document_id="d1",
+                                       content_hash="h1", indexed_chunk_count=5, is_indexed=True)
+            return SimpleNamespace(doc_id=doc_id, filename=f"{doc_id}.pdf", document_id=None,
+                                   content_hash=None, indexed_chunk_count=0, is_indexed=False)
+
+    class FakeQueryService2:
+        def query(self, *, question, **kwargs):
+            return SimpleNamespace(
+                answer="Middle-income countries should move from 1i to 2i and then 3i. [C1]",
+                citations=[SimpleNamespace(citation_id="C1", chunk_id="chunk-1", score=0.91)],
+                evidence=[SimpleNamespace(chunk_id="chunk-1", score=0.91,
+                                          text="The report describes 1i, 2i, and 3i strategies.")],
+                citation_verification=None,
+                table_citations=[], visual_citations=[],
+                table_evidence=[], visual_evidence=[], visual_interpretation=None,
+            )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = EvaluationRunner(
+            output_root=pathlib.Path(tmp),
+            query_service=FakeQueryService2(),
+            registry=FakeRegistry2(),
+            trace_enabled=False,
+        )
+        outcome = runner.run(run_name="t1-test", doc_ids={"DOC-005"}, top_k=2)
+
+    assert "average_retrieved_evidence_token_recall" in outcome.summary["metrics"]
+    assert "average_answer_token_recall" in outcome.summary["metrics"]
+    assert "average_evidence_answer_gap" in outcome.summary["metrics"]

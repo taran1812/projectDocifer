@@ -38,6 +38,26 @@ ABSTENTION_MARKERS = (
 
 
 @dataclass(frozen=True)
+class TokenRecallResult:
+    recall: float
+    overlap_count: int
+    expected_count: int
+
+
+def token_recall(expected: str, observed: str) -> TokenRecallResult:
+    expected_tokens = set(_tokens(expected))
+    observed_tokens = set(_tokens(observed))
+    if not expected_tokens:
+        return TokenRecallResult(recall=0.0, overlap_count=0, expected_count=0)
+    overlap = expected_tokens & observed_tokens
+    return TokenRecallResult(
+        recall=round(len(overlap) / len(expected_tokens), 4),
+        overlap_count=len(overlap),
+        expected_count=len(expected_tokens),
+    )
+
+
+@dataclass(frozen=True)
 class EvaluationMetrics:
     answer_present: bool
     citation_count: int
@@ -48,6 +68,12 @@ class EvaluationMetrics:
     abstention_detected: bool
     abstention_correct: bool | None
     top_score: float | None
+    retrieved_evidence_token_recall: float | None = None
+    answer_token_recall: float | None = None
+    evidence_answer_gap: float | None = None
+    retrieved_evidence_token_overlap_count: int | None = None
+    answer_token_overlap_count: int | None = None
+    expected_answer_token_count: int | None = None
 
 
 def score_answer(
@@ -57,15 +83,13 @@ def score_answer(
     citation_count: int,
     retrieved_evidence_count: int,
     retrieval_scores: list[float],
+    retrieved_evidence_text: str = "",
 ) -> EvaluationMetrics:
     answer_text = answer.strip()
     abstention_detected = _detect_abstention(answer_text)
-    expected_tokens = _tokens(question.expected_answer)
-    answer_tokens = set(_tokens(answer_text))
-    if expected_tokens:
-        expected_recall = len(set(expected_tokens) & answer_tokens) / len(set(expected_tokens))
-    else:
-        expected_recall = 0.0
+
+    evidence_recall = token_recall(question.expected_answer, retrieved_evidence_text)
+    answer_recall = token_recall(question.expected_answer, answer_text)
 
     abstention_correct = None
     if question.should_abstain:
@@ -78,7 +102,7 @@ def score_answer(
         citation_count=citation_count,
         citation_presence=citation_count > 0,
         retrieved_evidence_count=retrieved_evidence_count,
-        expected_answer_token_recall=round(expected_recall, 4),
+        expected_answer_token_recall=answer_recall.recall,
         expected_answer_similarity=round(
             SequenceMatcher(None, question.expected_answer.lower(), answer_text.lower()).ratio(),
             4,
@@ -86,6 +110,12 @@ def score_answer(
         abstention_detected=abstention_detected,
         abstention_correct=abstention_correct,
         top_score=max(retrieval_scores) if retrieval_scores else None,
+        retrieved_evidence_token_recall=evidence_recall.recall,
+        answer_token_recall=answer_recall.recall,
+        evidence_answer_gap=round(evidence_recall.recall - answer_recall.recall, 4),
+        retrieved_evidence_token_overlap_count=evidence_recall.overlap_count,
+        answer_token_overlap_count=answer_recall.overlap_count,
+        expected_answer_token_count=evidence_recall.expected_count,
     )
 
 

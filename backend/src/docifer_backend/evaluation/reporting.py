@@ -73,6 +73,27 @@ def build_summary(results: list[Any]) -> dict[str, Any]:
             ),
             "latency_ms_p50": round(median(latencies), 2) if latencies else None,
             "latency_ms_p95": _percentile(latencies, 95),
+            "average_retrieved_evidence_token_recall": _average(
+                [
+                    result.metrics.get("retrieved_evidence_token_recall")
+                    for result in evaluated
+                    if result.metrics.get("retrieved_evidence_token_recall") is not None
+                ]
+            ),
+            "average_answer_token_recall": _average(
+                [
+                    result.metrics.get("answer_token_recall")
+                    for result in evaluated
+                    if result.metrics.get("answer_token_recall") is not None
+                ]
+            ),
+            "average_evidence_answer_gap": _average(
+                [
+                    result.metrics.get("evidence_answer_gap")
+                    for result in evaluated
+                    if result.metrics.get("evidence_answer_gap") is not None
+                ]
+            ),
         },
     }
     return summary
@@ -111,6 +132,54 @@ def write_markdown_report(
     lines.extend(["", "## Category Counts", ""])
     for category, count in summary["by_category"].items():
         lines.append(f"- {category}: {count}")
+
+    avg_evidence_recall = summary["metrics"].get("average_retrieved_evidence_token_recall")
+    avg_answer_recall = summary["metrics"].get("average_answer_token_recall")
+    avg_gap = summary["metrics"].get("average_evidence_answer_gap")
+    lines.extend(
+        [
+            "",
+            "## Evidence Recall vs Answer Recall",
+            "",
+            f"- Average retrieved evidence token recall: {avg_evidence_recall}",
+            f"- Average answer token recall: {avg_answer_recall}",
+            f"- Average evidence-answer gap: {avg_gap}",
+            "",
+            "### Worst Evidence Recall Questions (retrieval problem)",
+            "",
+        ]
+    )
+    non_abstain_evaluated = [
+        r for r in evaluated if not r.should_abstain
+        and r.metrics.get("retrieved_evidence_token_recall") is not None
+    ]
+    worst_evidence = sorted(
+        non_abstain_evaluated,
+        key=lambda r: r.metrics.get("retrieved_evidence_token_recall", 1.0),
+    )[:5]
+    for r in worst_evidence:
+        lines.append(
+            f"- {r.qa_id} ({r.doc_id}): evidence_recall="
+            f"{r.metrics.get('retrieved_evidence_token_recall')} | {r.question[:80]}"
+        )
+
+    lines.extend(
+        [
+            "",
+            "### Largest Evidence-Answer Gap Questions (synthesis problem)",
+            "",
+        ]
+    )
+    largest_gap = sorted(
+        non_abstain_evaluated,
+        key=lambda r: r.metrics.get("evidence_answer_gap", 0.0),
+        reverse=True,
+    )[:5]
+    for r in largest_gap:
+        lines.append(
+            f"- {r.qa_id} ({r.doc_id}): gap="
+            f"{r.metrics.get('evidence_answer_gap')} | {r.question[:80]}"
+        )
 
     lines.extend(["", "## Evaluated Examples", ""])
     for result in evaluated[:5]:
