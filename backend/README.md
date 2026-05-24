@@ -654,6 +654,22 @@ ragas_input.jsonl  — RAGAS-compatible export
 }
 ```
 
+### Per-category recall (post-fix 68-Q)
+
+| Category | Recall | n |
+|----------|-------:|--:|
+| Text Factual | 0.900 | 19 |
+| Chart / Visual | 0.732 | 10 |
+| Mixed Modality | 0.721 | 5 |
+| Table Lookup | 0.567 | 10 |
+| Text Synthesis | 0.534 | 6 |
+| Table Reasoning | 0.363 | 4 |
+| Abstention accuracy | 11/14 | — |
+
+**Routing (post-fix 68-Q):** text=25, table=14, visual=10, auto=5, abstain=14
+
+**Remaining false abstentions:** QA-017 and QA-032 — table index coverage gaps (Docling missed those tables). Deferred to Phase 14.
+
 Current test suite: **144 passed, 34 skipped, 1 xfailed**
 
 Detailed ablation notes are in:

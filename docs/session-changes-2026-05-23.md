@@ -299,11 +299,55 @@ False abstention gate now passes (0.037 < 0.05).
 
 ---
 
+### Phase 13 — Backend Post-Fix Validation
+
+Routing verification and per-category recall breakdown on corrected 68-Q dataset.
+
+**Routing (post-fix 68-Q):**
+
+| Mode | Count |
+|------|------:|
+| text | 25 / 54 |
+| table | 14 / 54 |
+| visual | 10 / 54 |
+| auto | 5 / 54 |
+| abstain | 14 / 68 |
+
+**Per-category recall:**
+
+| Category | Recall | n |
+|----------|-------:|--:|
+| Text Factual | 0.900 | 19 |
+| Chart / Visual | 0.732 | 10 |
+| Mixed Modality | 0.721 | 5 |
+| Table Lookup | 0.567 | 10 |
+| Text Synthesis | 0.534 | 6 |
+| Table Reasoning | 0.363 | 4 |
+| Abstention accuracy | 11/14 | — |
+
+**Remaining false abstentions (2):**
+- QA-017 [Table Lookup]: World Bank financing proportions — table not indexed
+- QA-032 [Table Reasoning]: FAA practical experience hours — table not indexed
+
+**Table issue root causes:**
+1. Table index coverage gaps — Docling misses image-rendered, plain-text-formatted, and complex-layout tables → QA-017, QA-032 abstain
+2. Table reasoning difficulty — multi-step arithmetic (% growth, cross-row comparison) not covered by Phase 7C deterministic reasoning
+
+### Commits (Phase 13)
+
+| Commit | Description |
+|--------|-------------|
+| `630a381` | docs(phase12): add routing verification and per-category recall breakdown |
+
+---
+
 ## Status after session
 
-- Phases 1–12: **Complete**
-- Phase 13 (Frontend MVP and Portfolio Packaging): **Next**
+- Phases 1–13: **Complete** (backend validation hardening done)
+- Phase 14 (Frontend MVP and Portfolio Packaging): **Next**
 
-Phase 13 deferred items:
-- Investigate evidence-answer synthesis gap (~0.10)
+Deferred to Phase 14:
+- Table index coverage: QA-017, QA-032 need table re-extraction or text fallback
+- Table reasoning: multi-step arithmetic cases (Phase 7C extension)
+- Evidence-answer synthesis gap (~0.10)
 - Frontend MVP and portfolio packaging

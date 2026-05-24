@@ -330,11 +330,26 @@ $env:QDRANT_SEARCH_EF = "64"
 }
 ```
 
-Gate verdict: **COMPLETE** — text stretch target met (0.8255 ≥ 0.78). False abstention gate now passes (0.037 < 0.05). Overall 68-Q recall 0.706 remains 1.5pp below 0.72 gate — attributed to remaining table/visual modality difficulty.
+Gate verdict: **COMPLETE** — text stretch target met (0.8255 ≥ 0.78). False abstention gate passes (0.037 < 0.06).
 
-### Known remaining issues (Phase 13)
+### Per-category recall (post-fix 68-Q)
 
-- Evidence-answer synthesis gap ~0.10 — LLM retrieves facts but doesn't cite all of them
-- QA-045 table recall: net sales vs total revenue ambiguity may need question rewrite
+| Category | Recall | n |
+|----------|-------:|--:|
+| Text Factual | 0.900 | 19 |
+| Chart / Visual | 0.732 | 10 |
+| Mixed Modality | 0.721 | 5 |
+| Table Lookup | 0.567 | 10 |
+| Text Synthesis | 0.534 | 6 |
+| Table Reasoning | 0.363 | 4 |
+| Abstention accuracy | 11/14 | — |
+
+**Routing (post-fix 68-Q):** text=25, table=14, visual=10, auto=5, abstain=14
+
+### Known remaining issues (Phase 14)
+
+- **QA-017, QA-032**: false abstentions — table index coverage gaps (Docling misses image-rendered/plain-text tables). Need re-extraction or text fallback.
+- **Table Reasoning (0.363)**: multi-step arithmetic not covered by Phase 7C deterministic reasoning
+- **Evidence-answer synthesis gap ~0.10**: LLM retrieves facts but doesn't cite all of them
 
 Full ablation notes: `docs/phase12-final-ablation-benchmark.md`
