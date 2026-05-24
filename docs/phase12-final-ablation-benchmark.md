@@ -97,7 +97,20 @@ Post-ablation reindex completed with 1200/200 (10,218 chunks). Tasks 5+ run on t
 
 ## Task 6 — Answer Prompt Ablation
 
-TBD
+Config: `top_k=12`, `retrieval_mode=hybrid`, `evidence_mode=category`, `verify_citations=True`, `chunk_size=1200/200`
+
+| Run | Prompt Version | Answer Recall (all) | Answer Recall (text) | Evidence Recall | Gap | Citation % | FA (n/36) | P50 ms | P95 ms |
+|-----|---------------|--------------------:|---------------------:|----------------:|----:|----------:|----------:|-------:|-------:|
+| phase12_chunks1200_topk12 | baseline | 0.7170 | 0.8255 | 0.8395 | 0.1038 | 0.975 | 2 | 3632 | 16397 |
+| phase12_prompt_completeness | phase12_completeness_v1 | 0.7133 | 0.8173 | 0.8209 | 0.1076 | 0.949 | 2 | 4095 | 13789 |
+
+**Verdict: Completeness prompt DISCARDED.**
+
+- Recall regressed: text recall 0.8255 → 0.8173 (−0.008)
+- Citation rate dropped below 0.95 gate: 0.975 → 0.949
+- Gap did not improve (0.1038 → 0.1076)
+- Completeness rules did not help synthesis; prompt reverted to baseline
+- `ANSWER_PROMPT_VERSION` set to `"phase12_baseline_v1"` in code
 
 ---
 

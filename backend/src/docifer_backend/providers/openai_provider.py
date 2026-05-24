@@ -16,7 +16,7 @@ from docifer_backend.providers.base import (
 )
 
 
-ANSWER_PROMPT_VERSION = "phase12_completeness_v1"
+ANSWER_PROMPT_VERSION = "phase12_baseline_v1"
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
@@ -106,15 +106,7 @@ class OpenAIProvider:
                 "- When a computed table observation is provided, use it as the preferred "
                 "table fact and cite only the table ID that supports that observation.\n"
                 "- When a visual observation is provided, cite only the visual ID that "
-                "supports the visible claim and do not invent unreadable chart values.\n"
-                "\nCompleteness rules:\n"
-                "- Identify all parts of the question and address each explicitly.\n"
-                "- Use all relevant evidence, not only the highest-ranked citation.\n"
-                "- If the question asks for multiple items, list each item.\n"
-                "- If the evidence contains multiple relevant entities or metrics, include them all.\n"
-                "- Do not omit a supported detail just because it is secondary.\n"
-                "- Every factual claim must have a citation.\n"
-                "- Abstain only when required information is genuinely missing from evidence.\n"
+                "supports the visible claim and do not invent unreadable chart values."
             ),
             input=(
                 f"Question:\n{question}\n\n"

@@ -478,4 +478,4 @@ def test_query_debug_includes_answer_prompt_version(session_factory, tmp_path):
     )
 
     assert outcome.debug.get("answer_prompt_version") is not None
-    assert outcome.debug["answer_prompt_version"] == "phase12_completeness_v1"
+    assert outcome.debug["answer_prompt_version"] == "phase12_baseline_v1"

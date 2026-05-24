@@ -177,7 +177,9 @@ def test_with_openai_retry_backoff_timing():
     assert 3.5 <= sleep_calls[1] <= 4.5   # 2^2 ± 0.5
 
 
-def test_generate_grounded_answer_prompt_contains_completeness_rules():
+def test_generate_grounded_answer_prompt_contains_abstention_rules():
+    # T6 ablation showed completeness rules regressed recall — reverted to baseline.
+    # This test verifies the baseline prompt is present.
     from docifer_backend.providers.openai_provider import OpenAIProvider, ANSWER_PROMPT_VERSION
     import unittest.mock as mock
 
@@ -198,5 +200,5 @@ def test_generate_grounded_answer_prompt_contains_completeness_rules():
         evidence=[GroundingEvidence(citation_id="C1", text="The 1i, 2i, 3i strategies.", source="doc.pdf")],
     )
 
-    assert "completeness" in captured['instructions'].lower() or "all parts" in captured['instructions'].lower()
-    assert ANSWER_PROMPT_VERSION == "phase12_completeness_v1"
+    assert "abstain" in captured['instructions'].lower()
+    assert ANSWER_PROMPT_VERSION == "phase12_baseline_v1"
