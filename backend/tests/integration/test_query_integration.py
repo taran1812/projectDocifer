@@ -65,7 +65,7 @@ def _make_svc(pg_session_factory, qdrant_client, fake_provider):
 def test_query_returns_answer(
     query_canonical, pg_session_factory, qdrant_client, fake_provider
 ):
-    outcome = _make_svc(pg_session_factory, qdrant_client, fake_provider).query(
+    outcome = _make_svc(pg_session_factory, qdrant_client, fake_provider).query_sync(
         question="What reforms help countries escape the middle-income trap?",
         scope="single",
         content_hash=QUERY_HASH_A,
@@ -79,7 +79,7 @@ def test_query_returns_answer(
 def test_query_single_scope_retrieves_relevant_evidence(
     query_canonical, pg_session_factory, qdrant_client, fake_provider
 ):
-    outcome = _make_svc(pg_session_factory, qdrant_client, fake_provider).query(
+    outcome = _make_svc(pg_session_factory, qdrant_client, fake_provider).query_sync(
         question="institutional quality and human capital",
         scope="single",
         content_hash=QUERY_HASH_A,

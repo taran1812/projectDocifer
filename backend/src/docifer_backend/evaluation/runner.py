@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import time
 from dataclasses import asdict, dataclass, field
@@ -202,7 +203,7 @@ class EvaluationRunner:
                 },
                 enabled=self.trace_enabled,
             ) as trace:
-                outcome = query_service.query(
+                outcome = asyncio.run(query_service.query(
                     question=question.question,
                     scope=scope,
                     content_hash=doc_ref.content_hash if scope == "single" else None,
@@ -217,7 +218,7 @@ class EvaluationRunner:
                     verify_citations=verify_citations,
                     rerank=rerank,
                     rerank_top_n=rerank_top_n,
-                )
+                ))
                 latency_ms = round((time.perf_counter() - started) * 1000, 2)
                 table_evidence = list(getattr(outcome, "table_evidence", []) or [])
                 visual_evidence = list(getattr(outcome, "visual_evidence", []) or [])

@@ -75,7 +75,7 @@ def test_query_rerank_false_preserves_existing_top_k(session_factory):
     calls: list[int] = []
     _stub_retrieve(service, calls=calls, evidence=_chunks(5))
 
-    outcome = service.query(
+    outcome = service.query_sync(
         question="What is the answer?",
         content_hash="a" * 64,
         top_k=2,
@@ -104,7 +104,7 @@ def test_query_rerank_true_retrieves_candidates_and_returns_final_top_k(session_
     calls: list[int] = []
     _stub_retrieve(service, calls=calls, evidence=_chunks(5))
 
-    outcome = service.query(
+    outcome = service.query_sync(
         question="What is the answer?",
         content_hash="a" * 64,
         top_k=2,
@@ -129,7 +129,7 @@ def test_query_reranker_failure_falls_back_to_original_order(session_factory):
     calls: list[int] = []
     _stub_retrieve(service, calls=calls, evidence=_chunks(5))
 
-    outcome = service.query(
+    outcome = service.query_sync(
         question="What is the answer?",
         content_hash="a" * 64,
         top_k=2,
@@ -150,7 +150,7 @@ def test_query_rejects_rerank_top_n_smaller_than_top_k(session_factory):
     service = _service(session_factory, reranker=FakeReranker())
 
     with pytest.raises(ValueError, match="rerank_top_n"):
-        service.query(
+        service.query_sync(
             question="What is the answer?",
             content_hash="a" * 64,
             top_k=4,

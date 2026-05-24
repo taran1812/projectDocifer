@@ -127,7 +127,7 @@ def test_text_query_returns_answer_citations_and_evidence(tmp_path, session_fact
         qdrant_client=qdrant_client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="What growth strategy should middle-income countries use?",
         content_hash=content_hash,
         top_k=2,
@@ -169,7 +169,7 @@ def test_bm25_query_retrieves_lexical_matches(tmp_path, session_factory):
         qdrant_client=qdrant_client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="innovation",
         content_hash=content_hash,
         top_k=2,
@@ -209,7 +209,7 @@ def test_hybrid_query_exposes_score_breakdown_and_verifier(tmp_path, session_fac
         qdrant_client=qdrant_client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="middle-income innovation",
         content_hash=content_hash,
         top_k=2,
@@ -353,7 +353,7 @@ def test_query_abstention_retry_fires_when_initial_answer_abstains(session_facto
         qdrant_client=client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="What is the answer?",
         content_hash=content_hash,
         top_k=2,
@@ -388,7 +388,7 @@ def test_query_abstention_retry_does_not_fire_without_retrieved_evidence(session
         qdrant_client=client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="What is the answer?",
         content_hash=content_hash,
         top_k=2,
@@ -418,7 +418,7 @@ def test_query_abstention_retry_does_not_fire_in_visual_mode(session_factory, tm
         qdrant_client=client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="What chart is shown?",
         content_hash=content_hash,
         top_k=2,
@@ -440,7 +440,7 @@ def test_query_debug_has_retry_fields_when_no_retry(session_factory, tmp_path):
         qdrant_client=client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="What strategy is recommended?",
         content_hash=content_hash,
         top_k=2,
@@ -469,7 +469,7 @@ def test_query_debug_includes_answer_prompt_version(session_factory, tmp_path):
         qdrant_client=client,
         session_factory=session_factory,
         collection_name="test_text_chunks",
-    ).query(
+    ).query_sync(
         question="What strategy is recommended?",
         content_hash=content_hash,
         top_k=2,

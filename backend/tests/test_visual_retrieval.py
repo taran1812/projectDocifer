@@ -644,7 +644,7 @@ def test_query_visual_mode_returns_visual_citation_and_observation(tmp_path, ses
         session_factory=session_factory,
         collection_name="unused_text_collection",
         visual_collection_name="test_visual_evidence",
-    ).query(
+    ).query_sync(
         question="Which figure shows the main findings?",
         content_hash=content_hash,
         evidence_mode="visual",
@@ -676,7 +676,7 @@ def test_query_auto_mode_uses_visual_intent(tmp_path, session_factory):
         session_factory=session_factory,
         collection_name="unused_text_collection",
         visual_collection_name="test_visual_evidence",
-    ).query(
+    ).query_sync(
         question="Which chart shows the main findings?",
         content_hash=content_hash,
         retrieval_mode="bm25",
@@ -699,7 +699,7 @@ def test_query_visual_mode_abstains_when_visual_is_unclear(tmp_path, session_fac
         session_factory=session_factory,
         collection_name="unused_text_collection",
         visual_collection_name="test_visual_evidence",
-    ).query(
+    ).query_sync(
         question="What exact value is shown in the chart?",
         content_hash=content_hash,
         evidence_mode="visual",

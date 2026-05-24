@@ -145,7 +145,7 @@ def test_multi_document_query_caps_per_document_and_enriches_citations():
     session_factory = _session_factory()
     _seed_text_documents(session_factory)
 
-    outcome = _service(session_factory).query(
+    outcome = _service(session_factory).query_sync(
         question="Compare strategy growth evidence.",
         scope="doc_ids",
         doc_ids=["DOC-005", "DOC-007"],
@@ -167,7 +167,7 @@ def test_scope_all_searches_all_indexed_text_documents():
     session_factory = _session_factory()
     _seed_text_documents(session_factory)
 
-    outcome = _service(session_factory).query(
+    outcome = _service(session_factory).query_sync(
         question="Compare strategy growth evidence.",
         scope="all",
         top_k=4,
@@ -190,7 +190,7 @@ def test_selected_document_scope_is_forwarded_to_table_retrieval():
     service = _service(session_factory)
     service.table_retriever = CapturingTableRetriever()
 
-    outcome = service.query(
+    outcome = service.query_sync(
         question="Compare the table values.",
         scope="doc_ids",
         doc_ids=["DOC-005", "DOC-007"],
@@ -209,7 +209,7 @@ def test_selected_document_scope_is_forwarded_to_visual_retrieval():
     service = _service(session_factory)
     service.visual_retriever = CapturingVisualRetriever()
 
-    outcome = service.query(
+    outcome = service.query_sync(
         question="Compare the charts.",
         scope="doc_ids",
         doc_ids=["DOC-005", "DOC-007"],

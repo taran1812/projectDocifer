@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from dataclasses import asdict, dataclass, replace
@@ -177,7 +178,45 @@ class TextQueryService:
             collection_name=self.visual_collection_name,
         )
 
-    def query(
+    async def query(
+        self,
+        *,
+        question: str,
+        scope: str = "single",
+        content_hash: str | None = None,
+        doc_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        max_documents: int = 5,
+        max_evidence_per_document: int = 3,
+        top_k: int = 4,
+        retrieval_mode: str = "dense",
+        evidence_mode: str = "text",
+        table_top_k: int = 4,
+        visual_top_k: int = 3,
+        verify_citations: bool = False,
+        rerank: bool | None = None,
+        rerank_top_n: int | None = None,
+    ) -> QueryOutcome:
+        return await asyncio.to_thread(
+            self.query_sync,
+            question=question,
+            scope=scope,
+            content_hash=content_hash,
+            doc_ids=doc_ids,
+            document_ids=document_ids,
+            max_documents=max_documents,
+            max_evidence_per_document=max_evidence_per_document,
+            top_k=top_k,
+            retrieval_mode=retrieval_mode,
+            evidence_mode=evidence_mode,
+            table_top_k=table_top_k,
+            visual_top_k=visual_top_k,
+            verify_citations=verify_citations,
+            rerank=rerank,
+            rerank_top_n=rerank_top_n,
+        )
+
+    def query_sync(
         self,
         *,
         question: str,

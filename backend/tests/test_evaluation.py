@@ -27,7 +27,7 @@ class FakeRegistry:
 
 
 class FakeQueryService:
-    def query(
+    async def query(
         self,
         *,
         question: str,
@@ -280,7 +280,7 @@ def test_summary_includes_evidence_recall_averages():
                                    content_hash=None, indexed_chunk_count=0, is_indexed=False)
 
     class FakeQueryService2:
-        def query(self, *, question, **kwargs):
+        async def query(self, *, question, **kwargs):
             return SimpleNamespace(
                 answer="Middle-income countries should move from 1i to 2i and then 3i. [C1]",
                 citations=[SimpleNamespace(citation_id="C1", chunk_id="chunk-1", score=0.91)],

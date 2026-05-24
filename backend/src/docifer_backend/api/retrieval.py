@@ -50,9 +50,9 @@ def index_tables(request: TableIndexRequest) -> TableIndexResponse:
 
 
 @router.post("/query", response_model=QueryResponse)
-def query_text(request: QueryRequest) -> QueryResponse:
+async def query_text(request: QueryRequest) -> QueryResponse:
     try:
-        outcome = TextQueryService().query(
+        outcome = await TextQueryService().query(
             question=request.question,
             scope=request.scope,
             content_hash=request.content_hash,

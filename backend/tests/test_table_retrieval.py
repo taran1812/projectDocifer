@@ -170,7 +170,7 @@ def test_query_table_mode_returns_table_citation(tmp_path, session_factory):
         session_factory=session_factory,
         collection_name="unused_text_collection",
         table_collection_name="test_table_evidence",
-    ).query(
+    ).query_sync(
         question="Which segment had the highest 2025 net income?",
         content_hash=content_hash,
         evidence_mode="table",
