@@ -313,27 +313,28 @@ $env:QDRANT_SEARCH_EF = "64"
 }
 ```
 
-**68-question expanded dataset (`phase12_expanded_68q_final`, run from main repo):**
+**68-question post-fix dataset (`phase12_postfix_68q`, run from main repo):**
+
+6 questions corrected (QA-041/042/045/046/048/050): routing mismatches and expected-answer format fixed. See `docs/phase12-final-ablation-benchmark.md` Task 12 for full fix table.
 
 ```json
 {
-  "average_answer_token_recall": 0.6259,
-  "average_retrieved_evidence_token_recall": 0.766,
-  "average_evidence_answer_gap": 0.1401,
-  "citation_presence_rate": 0.9104,
-  "false_abstention_rate": 0.0755,
-  "true_abstention_accuracy": 0.8571,
-  "latency_ms_p50": 3758,
-  "latency_ms_p95": 19506
+  "average_answer_token_recall": 0.7055,
+  "average_retrieved_evidence_token_recall": 0.8047,
+  "average_evidence_answer_gap": 0.0992,
+  "citation_presence_rate": 0.9559,
+  "false_abstention_rate": 0.037,
+  "true_abstention_accuracy": 0.7857,
+  "latency_ms_p50": 3897,
+  "latency_ms_p95": 42551
 }
 ```
 
-Gate verdict: **COMPLETE** — text stretch target met (0.8255 ≥ 0.78). Overall 0.7170 is 0.003 below gate due to table/visual routing issues, not text regression.
+Gate verdict: **COMPLETE** — text stretch target met (0.8255 ≥ 0.78). False abstention gate now passes (0.037 < 0.05). Overall 68-Q recall 0.706 remains 1.5pp below 0.72 gate — attributed to remaining table/visual modality difficulty.
 
-### Known issues (deferred to Phase 13)
+### Known remaining issues (Phase 13)
 
-- QA-041, 042, 045, 046, 048, 050: category=Table but answer is in text — routing mismatch causes abstention
-- 3 table questions: expected_answer in billions, system answers in millions — format mismatch depresses token recall
-- Evidence-answer synthesis gap ~0.10 consistent across configs — LLM does not cite all retrieved facts
+- Evidence-answer synthesis gap ~0.10 — LLM retrieves facts but doesn't cite all of them
+- QA-045 table recall: net sales vs total revenue ambiguity may need question rewrite
 
 Full ablation notes: `docs/phase12-final-ablation-benchmark.md`

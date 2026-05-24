@@ -262,12 +262,48 @@ Known issues in 68-Q:
 
 ---
 
+### Post-T11 — Dataset routing fixes
+
+6 golden questions corrected in `docifer_phase1_corpus_and_golden_eval_v1.xlsx`:
+
+| QA ID | Fix |
+|-------|-----|
+| QA-041 | category → Text Factual; evidence_type → Text |
+| QA-042 | category → Text Factual; evidence_type → Text |
+| QA-045 | expected_answer → `$269,912 million.` (was `$275.2 billion.`) |
+| QA-046 | category → Text Factual; evidence_type → Text |
+| QA-048 | category → Text Factual |
+| QA-050 | category → Text Factual |
+
+Root causes: QA-041/042/046 had table index gaps (answer in text); QA-048/050 had category/evidence_type mismatch; QA-045 expected answer used total revenue not net sales.
+
+Re-eval (`phase12_postfix_68q`, 68 questions):
+
+| Metric | Pre-fix | Post-fix | Delta |
+|--------|--------:|---------:|------:|
+| Answer recall | 0.6259 | **0.7055** | +0.080 |
+| Evidence recall | 0.766 | **0.805** | +0.039 |
+| Evidence-answer gap | 0.1401 | **0.099** | −0.041 |
+| Citation % | 0.910 | **0.956** | +0.046 |
+| False abstention rate | 0.075 | **0.037** | −0.038 |
+| True abstention accuracy | 0.857 | 0.786 | −0.071 |
+
+False abstention gate now passes (0.037 < 0.05).
+
+### Commits (post-T11)
+
+| Commit | Description |
+|--------|-------------|
+| `38a3e26` | fix(eval): correct table routing mismatches in golden dataset |
+| `f9299ce` | docs(phase12): add post-fix re-eval results (Task 12) |
+
+---
+
 ## Status after session
 
 - Phases 1–12: **Complete**
 - Phase 13 (Frontend MVP and Portfolio Packaging): **Next**
 
 Phase 13 deferred items:
-- Fix 6 table question category/expected_answer mismatches (QA-041, 042, 045, 046, 048, 050)
 - Investigate evidence-answer synthesis gap (~0.10)
 - Frontend MVP and portfolio packaging

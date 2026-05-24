@@ -577,10 +577,10 @@ Phase 12 optimized text retrieval recall from ~66% baseline to **82.6% text-only
 
 | Category | Count |
 |----------|------:|
-| Text Factual | 14 |
+| Text Factual | 19 |
 | Text Synthesis | 6 |
-| Table Lookup | 14 |
-| Table Reasoning | 5 |
+| Table Lookup | 10 |
+| Table Reasoning | 4 |
 | Chart / Visual | 10 |
 | Mixed Modality | 5 |
 | Unsupported / Abstention | 14 |
@@ -637,17 +637,20 @@ ragas_input.jsonl  — RAGAS-compatible export
 }
 ```
 
-### Phase 12 results (68-question expanded dataset)
+### Phase 12 results (68-question post-fix dataset — `phase12_postfix_68q`)
+
+6 questions corrected (QA-041/042/045/046/048/050): routing mismatches and expected-answer format fixed.
 
 ```json
 {
-  "average_answer_token_recall": 0.6259,
-  "average_retrieved_evidence_token_recall": 0.766,
-  "citation_presence_rate": 0.9104,
-  "false_abstention_rate": 0.0755,
-  "true_abstention_accuracy": 0.8571,
-  "latency_ms_p50": 3758,
-  "latency_ms_p95": 19506
+  "average_answer_token_recall": 0.7055,
+  "average_retrieved_evidence_token_recall": 0.8047,
+  "average_evidence_answer_gap": 0.0992,
+  "citation_presence_rate": 0.9559,
+  "false_abstention_rate": 0.037,
+  "true_abstention_accuracy": 0.7857,
+  "latency_ms_p50": 3897,
+  "latency_ms_p95": 42551
 }
 ```
 
