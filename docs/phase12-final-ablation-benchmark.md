@@ -70,7 +70,28 @@ Config: top_k=12, hybrid, evidence_mode=category
 
 ## Task 4 — Chunk-Size Ablation
 
-TBD
+Config: `top_k=12`, `retrieval_mode=hybrid`, `evidence_mode=category`, `verify_citations=True`
+
+Note: All runs use overlap (new T3 feature). The T2 baseline used no overlap; these runs are not directly comparable to T2.
+
+| Config | Total Chunks | Answer Recall (all) | Answer Recall (text) | Evidence Recall | Citation % | P50 ms | P95 ms |
+|--------|-------------:|--------------------:|---------------------:|----------------:|----------:|-------:|-------:|
+| 800 / 150 | 14,434 | 0.6716 | 0.7661 | 0.8267 | 0.950 | 3419 | 12066 |
+| **1200 / 200** | **10,218** | **0.7170** | **0.8255** | **0.8395** | **0.975** | 3632 | 16397 |
+| 1600 / 250 | 7,984 | 0.7147 | 0.8155 | 0.8212 | 0.950 | 3431 | 13405 |
+| 2000 / 300 | 6,758 | 0.7138 | 0.8156 | 0.8389 | 0.975 | 3932 | 11983 |
+
+### Decision
+
+**Winner: TEXT_CHUNK_SIZE=1200, TEXT_CHUNK_OVERLAP=200**
+
+- Best overall recall (0.7170) and text-only recall (0.8255)
+- Best citation rate (0.975) — tied with 2000/300
+- 800/150 has lowest overall recall despite most chunks (smaller chunks fragment context)
+- 1600/250 and 2000/300 nearly identical to each other but both below 1200/200
+- P95 at 16.4s is slightly above the 20% worsening threshold (13.3→16.4 = +23%) but 1200/200 is the only config that meets recall target
+
+Post-ablation reindex completed with 1200/200 (10,218 chunks). Tasks 5+ run on this config.
 
 ---
 
