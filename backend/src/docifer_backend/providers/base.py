@@ -85,10 +85,10 @@ class AIProvider(Protocol):
 
 
 class AsyncAIProvider(Protocol):
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    async def embed_texts_async(self, texts: list[str]) -> list[list[float]]:
         ...
 
-    async def generate_grounded_answer(
+    async def generate_grounded_answer_async(
         self,
         *,
         question: str,
@@ -96,7 +96,7 @@ class AsyncAIProvider(Protocol):
     ) -> str:
         ...
 
-    async def verify_citation_grounding(
+    async def verify_citation_grounding_async(
         self,
         *,
         question: str,
@@ -105,7 +105,7 @@ class AsyncAIProvider(Protocol):
     ) -> CitationGroundingVerdict:
         ...
 
-    async def interpret_visual_evidence(
+    async def interpret_visual_evidence_async(
         self,
         *,
         question: str,
