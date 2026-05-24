@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from docifer_backend.retrieval.indexing import TextIndexingService
@@ -252,7 +254,8 @@ async def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
 @router.post("/retrieve/visuals", response_model=VisualRetrieveResponse)
 async def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResponse:
     retriever = VisualRetriever()
-    results = retriever.search(
+    results = await asyncio.to_thread(
+        retriever.search,
         query=request.question,
         top_k=request.top_k,
         content_hash=request.content_hash,

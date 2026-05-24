@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, status
 
 from docifer_backend.ingestion.service import IngestionService
@@ -13,7 +15,9 @@ router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 )
 async def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobResponse:
     try:
-        outcome = IngestionService().ingest_pdf(
+        service = IngestionService()
+        outcome = await asyncio.to_thread(
+            service.ingest_pdf,
             request.source_path,
             force_reprocess=request.force_reprocess,
         )
