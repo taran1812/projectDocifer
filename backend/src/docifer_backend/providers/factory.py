@@ -1,5 +1,5 @@
 from docifer_backend.config.settings import get_settings
-from docifer_backend.providers.base import AIProvider
+from docifer_backend.providers.base import AIProvider, AsyncAIProvider
 from docifer_backend.providers.openai_provider import OpenAIProvider
 
 
@@ -10,8 +10,8 @@ def get_ai_provider() -> AIProvider:
     raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
 
 
-def get_async_ai_provider():
+def get_async_ai_provider() -> AsyncAIProvider:
     settings = get_settings()
     if settings.llm_provider == "openai":
         return OpenAIProvider()
-    raise ValueError(f"Unknown provider: {settings.llm_provider}")
+    raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
