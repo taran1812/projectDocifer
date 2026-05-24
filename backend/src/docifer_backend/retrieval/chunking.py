@@ -97,10 +97,12 @@ def _carry_over_blocks(blocks: list[TextBlock], overlap: int) -> list[TextBlock]
     result: list[TextBlock] = []
     total = 0
     for block in reversed(blocks):
-        result.insert(0, block)
-        total += len(block.text)
+        sep_cost = 2 if result else 0
+        result.append(block)
+        total += len(block.text) + sep_cost
         if total >= overlap:
             break
+    result.reverse()
     return result
 
 
