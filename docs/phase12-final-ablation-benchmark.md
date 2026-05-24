@@ -57,7 +57,14 @@ Observation: evidence_answer_gap = 0.1038 at baseline (> 0.08 threshold) → **T
 
 ## Task 2.5 — No-Verify Latency Ablation
 
-TBD
+Config: top_k=12, hybrid, evidence_mode=category
+
+| Run | Verify | Answer Recall | Citation % | P50 ms | P95 ms | P50 Δ | P95 Δ |
+|-----|--------|-------------:|-----------:|-------:|-------:|------:|------:|
+| phase12_topk12 | ✓ | 0.6732 | 0.975 | 4078 | 13808 | — | — |
+| phase12_noverify_topk12 | ✗ | 0.6880 | 0.925 | 1707 | 15667 | −2371 | +1859 |
+
+**Verdict:** Verification saves 2.4s at P50 but P95 worsens (+1.9s). Citation rate drops without verification (0.975→0.925). No fast-path mode recommended for Phase 13 — P95 does not benefit and citation quality degrades. Keep `verify_citations=true` as default.
 
 ---
 
