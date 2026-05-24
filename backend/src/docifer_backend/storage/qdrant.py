@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Any
 
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from docifer_backend.config.settings import get_settings
 
@@ -14,6 +14,12 @@ def get_qdrant_client() -> QdrantClient:
     return QdrantClient(
         url=settings.qdrant_url,
     )
+
+
+@lru_cache
+def get_async_qdrant_client() -> AsyncQdrantClient:
+    settings = get_settings()
+    return AsyncQdrantClient(url=settings.qdrant_url)
 
 
 def check_qdrant_connection() -> bool:

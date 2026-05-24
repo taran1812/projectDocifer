@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from qdrant_client import QdrantClient, models
+from qdrant_client import AsyncQdrantClient, QdrantClient, models
 
 from docifer_backend.config.settings import get_settings
 from docifer_backend.retrieval.chunking import TextChunk
@@ -271,6 +272,66 @@ def search_text_chunks(
                 retrieval_mode="dense",
                 text=str(payload["text"]),
                 filename=str(payload["filename"]),
+                source_path=str(payload["source_path"]),
+                source_artifact_path=str(payload["source_artifact_path"]),
+                content_hash=str(payload["content_hash"]),
+                page_start=payload.get("page_start"),
+                page_end=payload.get("page_end"),
+                document_id=(
+                    str(payload["document_id"])
+                    if payload.get("document_id") is not None
+                    else None
+                ),
+            )
+        )
+    return results
+
+
+async def search_text_chunks_async(
+    query: str,
+    *,
+    client: AsyncQdrantClient,
+    collection_name: str,
+    embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    top_k: int = 4,
+    content_hash: str | None = None,
+    content_hashes: list[str] | None = None,
+    exact: bool | None = None,
+    ef: int | None = None,
+) -> list[RetrievedChunk]:
+    settings = get_settings()
+    use_exact = exact if exact is not None else settings.qdrant_exact_search
+    use_ef = ef if ef is not None else settings.qdrant_search_ef
+
+    query_vector = (await embed_fn([query]))[0]
+    search_params = models.SearchParams(
+        exact=use_exact,
+        hnsw_ef=use_ef if not use_exact else None,
+    )
+    query_filter = _content_hash_filter(content_hash, content_hashes)
+
+    response = await client.query_points(
+        collection_name=collection_name,
+        query=query_vector,
+        query_filter=query_filter,
+        limit=top_k,
+        search_params=search_params,
+        with_payload=True,
+    )
+
+    results: list[RetrievedChunk] = []
+    for point in response.points:
+        payload = point.payload or {}
+        results.append(
+            RetrievedChunk(
+                chunk_id=str(payload.get("chunk_id") or point.id),
+                score=float(point.score),
+                dense_score=float(point.score),
+                lexical_score=None,
+                hybrid_score=None,
+                retrieval_mode="dense",
+                text=str(payload["text"]),
+                filename=str(payload.get("filename") or ""),
                 source_path=str(payload["source_path"]),
                 source_artifact_path=str(payload["source_artifact_path"]),
                 content_hash=str(payload["content_hash"]),
