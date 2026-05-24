@@ -303,7 +303,10 @@ async def search_text_chunks_async(
     use_exact = exact if exact is not None else settings.qdrant_exact_search
     use_ef = ef if ef is not None else settings.qdrant_search_ef
 
-    query_vector = (await embed_fn([query]))[0]
+    embeddings = await embed_fn([query])
+    if not embeddings:
+        raise ValueError("embed_fn returned no embeddings for query")
+    query_vector = embeddings[0]
     search_params = models.SearchParams(
         exact=use_exact,
         hnsw_ef=use_ef if not use_exact else None,
@@ -322,6 +325,7 @@ async def search_text_chunks_async(
     results: list[RetrievedChunk] = []
     for point in response.points:
         payload = point.payload or {}
+        doc_id_raw = payload.get("document_id")
         results.append(
             RetrievedChunk(
                 chunk_id=str(payload.get("chunk_id") or point.id),
@@ -337,11 +341,7 @@ async def search_text_chunks_async(
                 content_hash=str(payload["content_hash"]),
                 page_start=payload.get("page_start"),
                 page_end=payload.get("page_end"),
-                document_id=(
-                    str(payload["document_id"])
-                    if payload.get("document_id") is not None
-                    else None
-                ),
+                document_id=str(doc_id_raw) if doc_id_raw is not None else None,
             )
         )
     return results
