@@ -64,6 +64,7 @@ datasets/processed/
 datasets/cache/
 artifacts/
 evals/runs/
+backend/uploads/
 
 # Keep folder structure
 !datasets/raw_pdfs/.gitkeep
