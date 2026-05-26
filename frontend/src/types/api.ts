@@ -178,3 +178,12 @@ export interface QueryResponse {
   citation_verification?: CitationVerification | null;
   debug: Record<string, unknown>;
 }
+
+export interface IngestionJobResponse {
+  job_id: string;
+  document_id: string;
+  status: string;
+  artifact_path: string | null;
+  reused_existing: boolean;
+  error_message: string | null;
+}
