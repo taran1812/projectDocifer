@@ -3,7 +3,8 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, Request, status
+from starlette.datastructures import UploadFile
 
 from docifer_backend.config.settings import get_settings
 from docifer_backend.ingestion.service import IngestionService
@@ -49,10 +50,16 @@ async def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobRespons
     response_model=IngestionJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def upload_pdf(
-    file: UploadFile,
-    force_reprocess: bool = Form(False),
-) -> IngestionJobResponse:
+async def upload_pdf(request: Request) -> IngestionJobResponse:
+    settings = get_settings()
+    max_bytes = settings.docling_max_file_size_bytes
+    form = await request.form(max_part_size=max_bytes)
+    file = form.get("file")
+    force_reprocess_raw = form.get("force_reprocess", "false")
+    force_reprocess = str(force_reprocess_raw).lower() in ("true", "1")
+
+    if not isinstance(file, UploadFile):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing file field.")
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -69,14 +76,7 @@ async def upload_pdf(
 
     safe_name = _sanitise_filename(file.filename)
     dest = uploads_dir / f"{uuid.uuid4().hex}_{safe_name}"
-    settings = get_settings()
-    max_bytes = settings.docling_max_file_size_bytes
-    data = await file.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds maximum upload size of {max_bytes} bytes.",
-        )
+    data = await file.read()
     dest.write_bytes(data)
 
     try:

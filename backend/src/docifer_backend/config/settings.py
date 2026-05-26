@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     processed_data_dir: str = "datasets/processed"
     artifacts_dir: str = "artifacts"
     pdf_parser_backend: str = "auto"
-    docling_max_file_size_bytes: int = 1_000_000
+    docling_max_file_size_bytes: int = 500_000_000
     qdrant_text_collection: str = "docifer_text_chunks"
     qdrant_table_collection: str = "docifer_table_evidence"
     qdrant_visual_collection: str = "docifer_visual_evidence"
