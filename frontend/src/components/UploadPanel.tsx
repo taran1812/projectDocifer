@@ -14,12 +14,14 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
   const [errorMsg, setErrorMsg] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollCountRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
@@ -32,7 +34,7 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
   }
 
   async function handleUpload(file: File) {
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
+    if (!file.name.toLowerCase().endsWith(".pdf") || (file.type && file.type !== "application/pdf")) {
       setErrorMsg("Only PDF files are supported");
       setState("failed");
       return;
@@ -53,7 +55,7 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
     if (job.status === "completed" || job.status === "done") {
       setState("done");
       onIngestionComplete();
-      setTimeout(() => setState("idle"), 3000);
+      timeoutRef.current = setTimeout(() => setState("idle"), 3000);
       return;
     }
     if (job.status === "failed") {
@@ -65,7 +67,7 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
     setState("processing");
     intervalRef.current = setInterval(async () => {
       pollCountRef.current += 1;
-      if (pollCountRef.current > 60) {
+      if (pollCountRef.current >= 60) {
         clearPolling();
         setErrorMsg("Ingestion timed out");
         setState("failed");
@@ -77,7 +79,7 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
           clearPolling();
           setState("done");
           onIngestionComplete();
-          setTimeout(() => setState("idle"), 3000);
+          timeoutRef.current = setTimeout(() => setState("idle"), 3000);
         } else if (status.status === "failed") {
           clearPolling();
           setErrorMsg(status.error_message ?? "Ingestion failed");
@@ -116,10 +118,15 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
       {state === "idle" && (
         <div
           className={`upload-zone${isDragOver ? " is-drag-over" : ""}`}
+          role="button"
+          tabIndex={0}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
           onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click();
+          }}
         >
           <span>Drop a PDF or browse</span>
           <input
