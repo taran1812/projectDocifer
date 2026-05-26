@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from docifer_backend.api.documents import router as documents_router
 from docifer_backend.api.health import router as health_router
@@ -16,6 +17,16 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Backend API for the Docifer multimodal multi-agent document intelligence system.",
     )
+
+    cors_origins = settings.parsed_cors_allowed_origins
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     app.include_router(health_router)
     app.include_router(ingestion_router)

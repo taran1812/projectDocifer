@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     database_url: str = "postgresql+psycopg://docifer_user:docifer_password@localhost:5432/docifer"
 
@@ -59,6 +60,14 @@ class Settings(BaseSettings):
 
     text_chunk_size: int = 1200
     text_chunk_overlap: int = 200
+
+    @property
+    def parsed_cors_allowed_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
     @model_validator(mode="after")
     def _validate_chunk_settings(self) -> "Settings":
