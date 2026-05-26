@@ -73,11 +73,11 @@ export function EvidencePanel({ response }: EvidencePanelProps) {
       ) : null}
 
       {response && tab === "retrieved" ? (
-        <div className="evidence-stack">{retrieved.map((item) => <EvidenceItem item={item} key={item.citation_id} />)}</div>
+        <div className="evidence-stack">{retrieved.map((item) => <EvidenceItem item={item} key={`${item.citation_id}-${item.source_path}`} />)}</div>
       ) : null}
 
       {response && tab === "unused" ? (
-        <div className="evidence-stack">{unused.map((item) => <EvidenceItem item={item} key={item.citation_id} />)}</div>
+        <div className="evidence-stack">{unused.map((item) => <EvidenceItem item={item} key={`${item.citation_id}-${item.source_path}`} />)}</div>
       ) : null}
 
       {response && tab === "debug" ? (

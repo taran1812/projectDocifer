@@ -77,6 +77,7 @@ export default function App() {
 
     setIsLoading(true);
     setError(null);
+    setResponse(null);
     setRequestStatus("running");
     const started = performance.now();
     try {
