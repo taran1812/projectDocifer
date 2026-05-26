@@ -46,34 +46,6 @@ uv run --project backend python -m docifer_backend.evaluation.runner `
   --no-trace
 ```
 
-## Frontend Workbench
-
-Run the backend:
-
-```powershell
-uv run --project backend uvicorn docifer_backend.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Run the frontend:
-
-```powershell
-Set-Location frontend
-npm install
-npm run dev
-```
-
-Open:
-
-```text
-http://127.0.0.1:5173
-```
-
-The frontend expects the backend at `http://127.0.0.1:8000` by default. Override with:
-
-```text
-VITE_DOCIFER_API_URL=http://127.0.0.1:8000
-```
-
 ## Key Documentation
 
 - `backend/README.md` - backend API, phase notes, and validation commands.
