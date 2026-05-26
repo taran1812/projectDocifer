@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnswerPanel } from "./components/AnswerPanel";
 import { DocumentList } from "./components/DocumentList";
 import { EvidencePanel } from "./components/EvidencePanel";
+import UploadPanel from "./components/UploadPanel";
 import { QueryComposer } from "./components/QueryComposer";
 import { StatusStrip } from "./components/StatusStrip";
 import { ApiError, dociferApi } from "./lib/api";
@@ -109,14 +110,21 @@ export default function App() {
         scope={scope}
       />
       <div className="workbench-grid">
-        <DocumentList
-          documents={documents}
-          onSelect={(document) => {
-            setSelectedDocumentId(document.document_id);
-            setScope("single");
-          }}
-          selectedDocumentId={selectedDocumentId}
-        />
+        <aside className="document-rail">
+          <UploadPanel
+            onIngestionComplete={() => {
+              dociferApi.documents().then((r) => setDocuments(r.documents));
+            }}
+          />
+          <DocumentList
+            documents={documents}
+            onSelect={(document) => {
+              setSelectedDocumentId(document.document_id);
+              setScope("single");
+            }}
+            selectedDocumentId={selectedDocumentId}
+          />
+        </aside>
         <section className="center-column">
           <QueryComposer
             evidenceMode={evidenceMode}

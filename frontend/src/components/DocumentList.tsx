@@ -19,7 +19,7 @@ function ModalityBadge({ label, status }: { label: string; status: ModalityIndex
 
 export function DocumentList({ documents, selectedDocumentId, onSelect }: DocumentListProps) {
   return (
-    <aside className="document-rail">
+    <>
       <div className="panel-heading">
         <FileText size={18} />
         <div>
@@ -48,6 +48,6 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
           </button>
         ))}
       </div>
-    </aside>
+    </>
   );
 }
