@@ -31,11 +31,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let details: unknown = null;
-    try {
-      details = await response.json();
-    } catch {
-      details = await response.text();
+    const rawDetails = await response.text();
+    let details: unknown = rawDetails;
+    if (rawDetails) {
+      try {
+        details = JSON.parse(rawDetails);
+      } catch {
+        details = rawDetails;
+      }
     }
     throw new ApiError(`Request failed with status ${response.status}`, response.status, details);
   }
