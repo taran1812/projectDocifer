@@ -45,6 +45,9 @@ Thumbs.db
 .ruff_cache/
 .coverage
 htmlcov/
+.superpowers/
+.worktrees
+.worktrees/
 
 # -----------------------------
 # Node / frontend
