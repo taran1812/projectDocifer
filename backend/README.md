@@ -816,3 +816,13 @@ Current result:
 ```
 
 The quality gate is healthy. P95 latency remains the main backend risk to watch before a polished frontend.
+
+## Phase 15 frontend workbench
+
+The frontend runs separately through Vite on port `5173`. The backend allows local frontend origins through `CORS_ALLOWED_ORIGINS`.
+
+```powershell
+uv run --project backend uvicorn docifer_backend.main:app --reload --host 127.0.0.1 --port 8000
+Set-Location frontend
+npm run dev
+```
