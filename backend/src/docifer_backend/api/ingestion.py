@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile, status
 
+from docifer_backend.config.settings import get_settings
 from docifer_backend.ingestion.service import IngestionService
 from docifer_backend.schemas.ingestion import IngestPdfRequest, IngestionJobResponse
 
@@ -16,7 +17,8 @@ def _get_uploads_dir() -> Path:
 def _sanitise_filename(name: str) -> str:
     name = Path(name).name
     name = re.sub(r"[^\w\-.]", "_", name)
-    return name[:120]
+    stem = name[: max(1, 116)]  # leave room for .pdf (4 chars)
+    return stem + ".pdf"
 
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
@@ -67,7 +69,15 @@ async def upload_pdf(
 
     safe_name = _sanitise_filename(file.filename)
     dest = uploads_dir / f"{uuid.uuid4().hex}_{safe_name}"
-    dest.write_bytes(await file.read())
+    settings = get_settings()
+    max_bytes = settings.docling_max_file_size_bytes
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum upload size of {max_bytes} bytes.",
+        )
+    dest.write_bytes(data)
 
     try:
         outcome = await asyncio.to_thread(
@@ -76,9 +86,17 @@ async def upload_pdf(
             force_reprocess=force_reprocess,
         )
     except FileNotFoundError as exc:
+        dest.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
+        dest.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ingestion pipeline error.",
+        ) from exc
 
     return IngestionJobResponse(**outcome.__dict__)
 

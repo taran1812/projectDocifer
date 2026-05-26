@@ -72,3 +72,21 @@ def test_upload_saves_file_and_returns_job_response(tmp_path, monkeypatch):
     saved = list(tmp_path.glob("*.pdf"))
     assert len(saved) == 1
     assert saved[0].read_bytes() == b"%PDF-1.4"
+
+
+def test_upload_returns_400_when_ingestion_raises_value_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "docifer_backend.api.ingestion._get_uploads_dir",
+        lambda: tmp_path,
+    )
+    with patch(
+        "docifer_backend.api.ingestion._ingest_pdf",
+        side_effect=ValueError("invalid pdf structure"),
+    ):
+        client = _make_client()
+        response = client.post(
+            "/ingestion/upload",
+            files={"file": ("bad.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+        )
+    assert response.status_code == 400
+    assert list(tmp_path.glob("*.pdf")) == []
