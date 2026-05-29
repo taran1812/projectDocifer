@@ -11,7 +11,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U docifer_user -d docifer"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 60s
 
   qdrant:
     image: qdrant/qdrant
