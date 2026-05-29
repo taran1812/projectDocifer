@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: docifer
+      POSTGRES_USER: docifer_user
+      POSTGRES_PASSWORD: docifer_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docifer_user -d docifer"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://docifer_user:docifer_password@postgres:5432/docifer
+      QDRANT_URL: http://qdrant:6333
+      APP_HOST: 0.0.0.0
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      RAW_PDF_DIR: /data/raw_pdfs
+      PROCESSED_DATA_DIR: /data/processed
+      ARTIFACTS_DIR: /data/artifacts
+    volumes:
+      - docifer_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_DOCIFER_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  docifer_data:
