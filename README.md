@@ -41,19 +41,28 @@ FastAPI backend (Python 3.12)
 
 ## Quick Start
 
+**One command (Docker):**
+
+```bash
+cp .env.example .env   # fill in OPENAI_API_KEY
+docker compose up --build
+# Open http://localhost:5173
+```
+
+> First build takes ~10 min (downloads ~2.5 GB of ML deps). Subsequent starts are instant.
+
+**Manual (dev with hot-reload):**
+
 ```powershell
-# 1. Infrastructure
+# Infrastructure
 docker run -d -p 5432:5432 -e POSTGRES_DB=docifer -e POSTGRES_USER=docifer_user -e POSTGRES_PASSWORD=docifer_password postgres:15
 docker run -d -p 6333:6333 qdrant/qdrant
 
-# 2. Backend
-cp .env.example .env   # fill in OPENAI_API_KEY
+# Backend
 uv run --project backend uvicorn docifer_backend.main:app --reload --host 127.0.0.1 --port 8000
 
-# 3. Frontend
-Set-Location frontend
-npm install
-npm run dev
+# Frontend
+Set-Location frontend; npm install; npm run dev
 # Open http://127.0.0.1:5173
 ```
 
@@ -63,7 +72,7 @@ See [docs/runbook.md](docs/runbook.md) for full setup, env vars, and production 
 
 ## Demo
 
-1. Start backend + frontend (see Quick Start)
+1. `docker compose up --build` (or manual setup — see Quick Start)
 2. Upload a PDF via the workbench drag-drop zone
 3. Wait for "is ready to query" (~5–30s depending on PDF size)
 4. Type a question — the answer includes inline citations linking back to source pages
@@ -106,24 +115,26 @@ Config: hybrid retrieval, category evidence mode, citation verification enabled,
 ## Project Structure
 
 ```
+docker-compose.yml      One-command local stack
 backend/
+  Dockerfile            python:3.12-slim + uv
   src/docifer_backend/
-    api/            FastAPI routers
-    ingestion/      PDF parse → canonical artifact
-    retrieval/      Qdrant query, reranker, answer LLM
-    documents/      Document registry service
-    evaluation/     Eval runner and harness
-  tests/            Unit + integration tests
+    api/                FastAPI routers
+    ingestion/          PDF parse → canonical artifact
+    retrieval/          Qdrant query, reranker, answer LLM
+    documents/          Document registry service
+    evaluation/         Eval runner and harness
+  tests/                Unit + integration tests
 
 frontend/
+  Dockerfile            node:20 build → nginx:alpine serve
   src/
-    components/     DocumentList, QueryComposer, UploadPanel
-    lib/api.ts      Typed API client
-    types/api.ts    Shared API types
+    components/         DocumentList, QueryComposer, UploadPanel
+    lib/api.ts          Typed API client
+    types/api.ts        Shared API types
 
 docs/
-  runbook.md        Setup, env vars, production checklist
-  phase*.md         Phase-by-phase design notes
+  runbook.md            Setup, env vars, production checklist
   DOCIFER_REFERENCE.md  Full technical reference with benchmarks
 ```
 

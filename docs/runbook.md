@@ -4,15 +4,40 @@
 
 | Dependency | Version | Notes |
 |---|---|---|
-| Python | 3.12+ | via `uv` recommended |
-| Node.js | 20+ | for frontend |
-| PostgreSQL | 15+ | document registry |
-| Qdrant | latest | vector store (Docker recommended) |
+| Docker | 24+ | for Docker Compose setup |
+| Python | 3.12+ | for manual/dev setup only |
+| Node.js | 20+ | for manual/dev setup only |
 | OpenAI API key | — | embedding + answer + vision models |
 
 ---
 
-## Local Development Setup
+## Docker Compose (Recommended)
+
+One command runs the full stack: postgres, qdrant, backend, frontend.
+
+```bash
+cp .env.example .env
+# Fill in OPENAI_API_KEY in .env
+
+docker compose up --build
+# Open http://localhost:5173
+```
+
+> **First build:** ~10 min — downloads ~2.5 GB of ML deps (docling + torch). Layer-cached after that.
+
+To stop:
+```bash
+docker compose down
+```
+
+To reset all data (volumes):
+```bash
+docker compose down -v
+```
+
+---
+
+## Local Development Setup (Manual)
 
 ### 1. Clone and configure environment
 
