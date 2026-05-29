@@ -14,18 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.12"
+          enable-cache: true
 
       - name: Install backend dependencies
         working-directory: backend
-        run: pip install -e ".[dev]"
+        run: uv sync
 
       - name: Run unit tests (no integration)
         working-directory: backend
-        run: pytest tests/ --ignore=tests/integration -q
+        run: uv run pytest tests/ --ignore=tests/integration -q
 
   frontend-typecheck:
     name: Frontend typecheck

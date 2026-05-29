@@ -20,7 +20,6 @@ backend/tmp_pytest/
 
 # UV / Python
 .python-version
-uv.lock
 
 # -----------------------------
 # Environment files
