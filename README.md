@@ -1,6 +1,6 @@
 # Docifer
 
-[![CI](https://github.com/tarannz/projectDOCIFER/actions/workflows/ci.yml/badge.svg)](https://github.com/tarannz/projectDOCIFER/actions/workflows/ci.yml)
+[![CI](https://github.com/taran1812/projectDocifer/actions/workflows/ci.yml/badge.svg)](https://github.com/taran1812/projectDocifer/actions/workflows/ci.yml)
 
 **Multimodal document intelligence** — upload a PDF, get grounded answers with citations from text, tables, and figures.
 
