@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from docifer_backend.config.paths import resolve_project_path
 from docifer_backend.ingestion.models import Document, DocumentIndexRun, IngestionJob
 from docifer_backend.ingestion.parser import ParsedDocument
 from docifer_backend.ingestion.service import IngestionService
@@ -64,7 +65,7 @@ def test_ingest_pdf_creates_job_and_canonical_artifact(tmp_path, session_factory
     assert outcome.status == IngestionStatus.PARSED.value
     assert outcome.reused_existing is False
     assert parser.calls == 1
-    canonical_path = Path(outcome.artifact_path)
+    canonical_path = resolve_project_path(outcome.artifact_path)
     assert canonical_path.exists()
 
     canonical = json.loads(canonical_path.read_text(encoding="utf-8"))

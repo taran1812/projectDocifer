@@ -154,6 +154,11 @@ p {
   overflow: hidden;
 }
 
+.document-rail {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .panel-heading {
   gap: 10px;
   padding: 16px;
@@ -163,7 +168,7 @@ p {
 .document-list {
   display: grid;
   gap: 8px;
-  max-height: calc(100vh - 138px);
+  min-height: 0;
   overflow: auto;
   padding: 10px;
 }
@@ -175,13 +180,29 @@ p {
   border: 1px solid #e0e6eb;
   border-radius: 8px;
   background: #fbfcfd;
-  padding: 10px;
+  padding: 8px;
   text-align: left;
 }
 
 .document-item.is-selected {
   border-color: #32748a;
   background: #edf7fa;
+}
+
+.document-select {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 2px;
+  text-align: left;
+}
+
+.document-select:focus-visible,
+.document-remove:focus-visible {
+  outline: 2px solid #32748a;
+  outline-offset: 2px;
 }
 
 .document-id,
@@ -201,6 +222,26 @@ p {
 .modality-row {
   flex-wrap: wrap;
   gap: 5px;
+}
+
+.document-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  justify-self: start;
+  border: 1px solid #e5b6b6;
+  border-radius: 6px;
+  background: #fff7f7;
+  color: #9b2c2c;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.document-remove:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .modality-badge {
@@ -237,6 +278,8 @@ p {
 }
 
 .composer-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   justify-content: space-between;
   gap: 8px;
 }
@@ -264,6 +307,21 @@ p {
   border-color: #32748a;
   background: #e5f3f7;
   color: #154b5e;
+}
+
+.segmented-control {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+  border: 1px solid #d5dde3;
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 2px;
+}
+
+.segmented-control button {
+  border: 0;
+  background: transparent;
 }
 
 textarea {
@@ -453,46 +511,88 @@ select {
   .debug-block {
     max-height: 420px;
   }
+
+  .composer-controls {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .composer-controls label {
+    justify-content: space-between;
+  }
+
+  .primary-action {
+    justify-content: center;
+    width: 100%;
+  }
 }
 
 /* UploadPanel */
 .upload-panel {
-  padding: 8px;
+  padding: 10px;
+  border-bottom: 1px solid #e3e8ec;
 }
 
 .upload-zone {
-  border: 2px dashed #475569;
-  border-radius: 6px;
-  padding: 16px 8px;
+  display: grid;
+  place-items: center;
+  min-height: 128px;
+  border: 1px dashed #8aa1ad;
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 16px;
   text-align: center;
   cursor: pointer;
-  font-size: 13px;
-  color: #94a3b8;
+  color: #394750;
   transition: border-color 0.15s, background 0.15s;
 }
 
 .upload-zone:hover,
 .upload-zone.is-drag-over {
-  border-color: #2563eb;
-  background: #1e293b;
-  color: #e2e8f0;
+  border-color: #32748a;
+  background: #edf7fa;
+  color: #154b5e;
+}
+
+.upload-zone-copy,
+.upload-progress-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.upload-zone-copy strong,
+.upload-progress-copy strong {
+  color: #1d2730;
+  font-size: 14px;
+}
+
+.upload-zone-copy span,
+.upload-progress-copy small,
+.upload-zone-copy small {
+  color: #62717c;
+  font-size: 12px;
 }
 
 .upload-spinner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
+  gap: 10px;
+  min-height: 96px;
+  border: 1px solid #d5dde3;
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 14px;
   font-size: 13px;
-  color: #94a3b8;
+  color: #394750;
 }
 
 .spinner {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid #475569;
-  border-top-color: #2563eb;
+  border: 2px solid #cfd8df;
+  border-top-color: #32748a;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -502,27 +602,36 @@ select {
 }
 
 .upload-done {
-  padding: 10px 8px;
+  display: flex;
+  align-items: center;
+  min-height: 72px;
+  border: 1px solid #9ac7ad;
+  border-radius: 8px;
+  background: #e7f5ec;
+  padding: 14px;
   font-size: 13px;
-  color: #22c55e;
+  color: #226642;
 }
 
 .upload-error {
-  padding: 10px 8px;
-  font-size: 13px;
-  color: #f87171;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  min-height: 86px;
+  border: 1px solid #e4a4a4;
+  border-radius: 8px;
+  background: #fff5f5;
+  padding: 14px;
+  font-size: 13px;
+  color: #9b2c2c;
 }
 
 .upload-error button {
   align-self: flex-start;
+  border: 1px solid #e4a4a4;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #9b2c2c;
+  padding: 5px 9px;
   font-size: 12px;
-  padding: 2px 8px;
-  background: #1e293b;
-  border: 1px solid #475569;
-  border-radius: 4px;
-  color: #94a3b8;
-  cursor: pointer;
 }

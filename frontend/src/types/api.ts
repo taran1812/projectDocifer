@@ -25,6 +25,7 @@ export interface DocumentSummary {
   content_hash: string;
   filename: string;
   source_path: string;
+  is_uploaded: boolean;
   parser_name?: string | null;
   latest_ingestion_status?: string | null;
   quality_status?: string | null;
@@ -186,4 +187,10 @@ export interface IngestionJobResponse {
   artifact_path: string | null;
   reused_existing: boolean;
   error_message: string | null;
+}
+
+export interface DocumentDeleteResponse {
+  document_id: string;
+  filename: string;
+  deleted: boolean;
 }

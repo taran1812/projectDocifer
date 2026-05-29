@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    api_key: str | None = None
 
     database_url: str = "postgresql+psycopg://docifer_user:docifer_password@localhost:5432/docifer"
 
@@ -40,6 +41,7 @@ class Settings(BaseSettings):
     artifacts_dir: str = "artifacts"
     pdf_parser_backend: str = "auto"
     docling_max_file_size_bytes: int = 500_000_000
+    upload_max_file_size_bytes: int = 1_000_000_000
     qdrant_text_collection: str = "docifer_text_chunks"
     qdrant_table_collection: str = "docifer_table_evidence"
     qdrant_visual_collection: str = "docifer_visual_evidence"

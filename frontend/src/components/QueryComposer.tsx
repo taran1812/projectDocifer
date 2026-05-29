@@ -43,20 +43,22 @@ export function QueryComposer({
     <form className="query-composer" onSubmit={handleSubmit}>
       <div className="composer-context">
         <span>{scope === "single" ? selectedDocument?.filename ?? "Select a document" : "All indexed documents"}</span>
-        <button
-          className={scope === "single" ? "segmented-active" : ""}
-          onClick={() => setScope("single")}
-          type="button"
-        >
-          Single
-        </button>
-        <button
-          className={scope === "all" ? "segmented-active" : ""}
-          onClick={() => setScope("all")}
-          type="button"
-        >
-          All
-        </button>
+        <div className="segmented-control" aria-label="Query scope">
+          <button
+            className={scope === "single" ? "segmented-active" : ""}
+            onClick={() => setScope("single")}
+            type="button"
+          >
+            Single
+          </button>
+          <button
+            className={scope === "all" ? "segmented-active" : ""}
+            onClick={() => setScope("all")}
+            type="button"
+          >
+            All
+          </button>
+        </div>
       </div>
       <textarea
         aria-label="Question"

@@ -6,11 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from docifer_backend.documents.service import (
+    DocumentRegistryForbiddenError,
     DocumentRegistryNotFoundError,
     DocumentRegistryService,
 )
 from docifer_backend.main import create_app
 from docifer_backend.schemas.documents import (
+    DocumentDeleteResponse,
     DocumentDetailResponse,
     DocumentIndexStatusResponse,
     DocumentListResponse,
@@ -45,6 +47,7 @@ def _fake_detail() -> DocumentDetailResponse:
         content_hash=_FAKE_HASH,
         filename="smoke_test.pdf",
         source_path="/tmp/smoke_test.pdf",
+        is_uploaded=True,
         file_size_bytes=100,
         latest_ingestion=None,
         modalities=_fake_modalities(),
@@ -66,6 +69,14 @@ def _fake_index_status() -> DocumentIndexStatusResponse:
     )
 
 
+def _fake_delete() -> DocumentDeleteResponse:
+    return DocumentDeleteResponse(
+        document_id=_FAKE_DOC_ID,
+        filename="smoke_test.pdf",
+        deleted=True,
+    )
+
+
 @pytest.fixture()
 def client(monkeypatch):
     mock_svc = MagicMock(spec=DocumentRegistryService)
@@ -73,6 +84,7 @@ def client(monkeypatch):
     mock_svc.get_document.return_value = _fake_detail()
     mock_svc.get_by_content_hash.return_value = _fake_detail()
     mock_svc.get_indexes.return_value = _fake_index_status()
+    mock_svc.delete_uploaded_document.return_value = _fake_delete()
     monkeypatch.setattr(docs_module, "DocumentRegistryService", lambda: mock_svc)
     monkeypatch.setattr(health_module, "check_database_connection", lambda: True)
     monkeypatch.setattr(health_module, "check_qdrant_connection", lambda: True)
@@ -84,6 +96,16 @@ def client(monkeypatch):
 def client_not_found(monkeypatch):
     mock_svc = MagicMock(spec=DocumentRegistryService)
     mock_svc.get_document.side_effect = DocumentRegistryNotFoundError("not found")
+    monkeypatch.setattr(docs_module, "DocumentRegistryService", lambda: mock_svc)
+    return TestClient(create_app())
+
+
+@pytest.fixture()
+def client_forbidden(monkeypatch):
+    mock_svc = MagicMock(spec=DocumentRegistryService)
+    mock_svc.delete_uploaded_document.side_effect = DocumentRegistryForbiddenError(
+        "Only browser-uploaded documents can be removed."
+    )
     monkeypatch.setattr(docs_module, "DocumentRegistryService", lambda: mock_svc)
     return TestClient(create_app())
 
@@ -126,3 +148,18 @@ def test_get_document_indexes_returns_200(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["document_id"] == _FAKE_DOC_ID
+
+
+def test_delete_uploaded_document_returns_200(client):
+    resp = client.delete(f"/documents/{_FAKE_DOC_ID}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["document_id"] == _FAKE_DOC_ID
+    assert body["deleted"] is True
+
+
+def test_delete_builtin_document_returns_403(client_forbidden):
+    resp = client_forbidden.delete(f"/documents/{_FAKE_DOC_ID}")
+
+    assert resp.status_code == 403

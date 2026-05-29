@@ -3,14 +3,29 @@ import { dociferApi } from "../lib/api";
 import type { IngestionJobResponse } from "../types/api";
 
 interface UploadPanelProps {
-  onIngestionComplete: () => void;
+  onIngestionComplete: (job: IngestionJobResponse) => void;
 }
 
 type UploadState = "idle" | "uploading" | "processing" | "done" | "failed";
+const ACCEPTED_PDF_TYPES = new Set(["application/pdf", "application/octet-stream"]);
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
 
 export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
   const [state, setState] = useState<UploadState>("idle");
   const [filename, setFilename] = useState("");
+  const [fileSize, setFileSize] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -34,12 +49,18 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
   }
 
   async function handleUpload(file: File) {
-    if (!file.name.toLowerCase().endsWith(".pdf") || (file.type && file.type !== "application/pdf")) {
+    clearPolling();
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (!file.name.toLowerCase().endsWith(".pdf") || !ACCEPTED_PDF_TYPES.has(file.type)) {
       setErrorMsg("Only PDF files are supported");
       setState("failed");
       return;
     }
     setFilename(file.name);
+    setFileSize(formatFileSize(file.size));
     setErrorMsg("");
     setState("uploading");
 
@@ -52,9 +73,9 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
       return;
     }
 
-    if (job.status === "completed" || job.status === "done") {
+    if (job.status === "completed" || job.status === "done" || job.status === "indexed") {
       setState("done");
-      onIngestionComplete();
+      onIngestionComplete(job);
       timeoutRef.current = setTimeout(() => setState("idle"), 3000);
       return;
     }
@@ -78,7 +99,7 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
         if (status.status === "completed" || status.status === "done") {
           clearPolling();
           setState("done");
-          onIngestionComplete();
+          onIngestionComplete(status);
           timeoutRef.current = setTimeout(() => setState("idle"), 3000);
         } else if (status.status === "failed") {
           clearPolling();
@@ -86,7 +107,7 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
           setState("failed");
         }
       } catch {
-        // transient network error — keep polling
+        // Transient network error; keep polling.
       }
     }, 2000);
   }
@@ -128,7 +149,11 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
             if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click();
           }}
         >
-          <span>Drop a PDF or browse</span>
+          <div className="upload-zone-copy">
+            <strong>Upload document</strong>
+            <span>Drop a PDF here or browse</span>
+            <small>Large PDFs are accepted up to the backend limit.</small>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -141,18 +166,26 @@ export default function UploadPanel({ onIngestionComplete }: UploadPanelProps) {
       {(state === "uploading" || state === "processing") && (
         <div className="upload-spinner">
           <span className="spinner" />
-          <span>{state === "uploading" ? "Uploading…" : "Processing…"}</span>
+          <span className="upload-progress-copy">
+            <strong>{state === "uploading" ? "Uploading..." : "Processing..."}</strong>
+            <small>
+              {filename}
+              {fileSize ? ` (${fileSize})` : ""}
+            </small>
+          </span>
         </div>
       )}
       {state === "done" && (
         <div className="upload-done">
-          <span>&#x2713; {filename} &mdash; Ready to query</span>
+          <span>{filename} is ready to query</span>
         </div>
       )}
       {state === "failed" && (
         <div className="upload-error">
           <span>{errorMsg || "Upload failed"}</span>
-          <button onClick={() => setState("idle")}>Dismiss</button>
+          <button onClick={() => setState("idle")} type="button">
+            Try again
+          </button>
         </div>
       )}
     </div>

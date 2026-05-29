@@ -69,7 +69,7 @@ class AutoPdfParser:
             )
 
         try:
-            return self.docling_parser.parse(source_path)
+            docling_result = self.docling_parser.parse(source_path)
         except Exception as exc:
             parsed = self.text_parser.parse(source_path)
             return replace(
@@ -83,6 +83,20 @@ class AutoPdfParser:
                     *parsed.errors,
                 ],
             )
+
+        if docling_result.errors:
+            # Docling had parse errors (e.g. OOM on dense pages) — fall back to
+            # pdfium for complete text coverage, carrying the docling errors along.
+            parsed = self.text_parser.parse(source_path)
+            return replace(
+                parsed,
+                errors=[
+                    *docling_result.errors,
+                    *parsed.errors,
+                ],
+            )
+
+        return docling_result
 
 
 class DoclingParser:

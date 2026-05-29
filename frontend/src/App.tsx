@@ -15,6 +15,15 @@ import type {
   QueryScope,
 } from "./types/api";
 
+const DEFAULT_QUERY_PARAMS = {
+  max_documents: 5,
+  max_evidence_per_document: 3,
+  top_k: 4,
+  retrieval_mode: "hybrid" as const,
+  table_top_k: 4,
+  visual_top_k: 3,
+} satisfies Partial<QueryRequest>;
+
 export default function App() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
@@ -28,6 +37,7 @@ export default function App() {
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [removingDocumentId, setRemovingDocumentId] = useState<string | null>(null);
 
   const selectedDocument = useMemo(
     () => documents.find((document) => document.document_id === selectedDocumentId) ?? null,
@@ -35,20 +45,22 @@ export default function App() {
   );
 
   useEffect(() => {
-    dociferApi
-      .ready()
-      .then((result) => setReadyStatus(result.status))
-      .catch(() => setReadyStatus("offline"));
-
-    dociferApi
-      .documents()
-      .then((result) => {
-        setDocuments(result.documents);
-        setSelectedDocumentId(result.documents[0]?.document_id ?? null);
-      })
-      .catch((loadError: unknown) => {
-        setError(loadError instanceof Error ? loadError.message : "Unable to load documents");
-      });
+    Promise.allSettled([dociferApi.ready(), dociferApi.documents()]).then(
+      ([readyResult, docsResult]) => {
+        if (readyResult.status === "fulfilled") {
+          setReadyStatus(readyResult.value.status);
+        } else {
+          setReadyStatus("offline");
+        }
+        if (docsResult.status === "fulfilled") {
+          setDocuments(docsResult.value.documents);
+          setSelectedDocumentId(docsResult.value.documents[0]?.document_id ?? null);
+        } else {
+          const loadError = docsResult.reason;
+          setError(loadError instanceof Error ? loadError.message : "Unable to load documents");
+        }
+      },
+    );
   }, []);
 
   async function runQuery() {
@@ -61,15 +73,10 @@ export default function App() {
     }
 
     const payload: QueryRequest = {
+      ...DEFAULT_QUERY_PARAMS,
       question: question.trim(),
       scope,
-      max_documents: 5,
-      max_evidence_per_document: 3,
-      top_k: 4,
-      retrieval_mode: "hybrid",
       evidence_mode: evidenceMode,
-      table_top_k: 4,
-      visual_top_k: 3,
       verify_citations: verifyCitations,
       ...(scope === "single" && selectedDocument
         ? { content_hash: selectedDocument.content_hash }
@@ -100,6 +107,52 @@ export default function App() {
     }
   }
 
+  async function refreshDocuments(nextSelectedDocumentId?: string | null) {
+    const result = await dociferApi.documents();
+    setDocuments(result.documents);
+    const hasRequestedSelection = result.documents.some(
+      (document) => document.document_id === nextSelectedDocumentId,
+    );
+    setSelectedDocumentId(
+      hasRequestedSelection
+        ? nextSelectedDocumentId ?? null
+        : result.documents[0]?.document_id ?? null,
+    );
+  }
+
+  async function removeUploadedDocument(document: DocumentSummary) {
+    const confirmed = window.confirm(
+      `Remove "${document.filename}"? This deletes its indexed evidence${document.is_uploaded ? " and stored upload" : ""}.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setRemovingDocumentId(document.document_id);
+    setError(null);
+    try {
+      await dociferApi.deleteDocument(document.document_id);
+      await refreshDocuments(
+        selectedDocumentId === document.document_id ? null : selectedDocumentId,
+      );
+      if (selectedDocumentId === document.document_id) {
+        setResponse(null);
+        setRequestStatus("idle");
+        setLatencyMs(null);
+      }
+    } catch (removeError: unknown) {
+      const message =
+        removeError instanceof ApiError
+          ? removeError.message
+          : removeError instanceof Error
+            ? removeError.message
+            : "Unable to remove document";
+      setError(message);
+    } finally {
+      setRemovingDocumentId(null);
+    }
+  }
+
   return (
     <main className="workbench">
       <StatusStrip
@@ -112,8 +165,12 @@ export default function App() {
       <div className="workbench-grid">
         <aside className="document-rail">
           <UploadPanel
-            onIngestionComplete={() => {
-              dociferApi.documents().then((r) => setDocuments(r.documents));
+            onIngestionComplete={(job) => {
+              refreshDocuments(job.document_id)
+                .then(() => setScope("single"))
+                .catch((err: unknown) => {
+                  setError(err instanceof Error ? err.message : "Failed to refresh document list after upload");
+                });
             }}
           />
           <DocumentList
@@ -122,6 +179,8 @@ export default function App() {
               setSelectedDocumentId(document.document_id);
               setScope("single");
             }}
+            onRemove={removeUploadedDocument}
+            removingDocumentId={removingDocumentId}
             selectedDocumentId={selectedDocumentId}
           />
         </aside>

@@ -7,12 +7,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from docifer_backend.documents.service import (
     DocumentRegistryAmbiguousError,
+    DocumentRegistryForbiddenError,
     DocumentRegistryNotFoundError,
     DocumentRegistryService,
 )
 from docifer_backend.schemas.documents import (
     DocumentArtifactsResponse,
     DocumentAuditResponse,
+    DocumentDeleteResponse,
     DocumentDetailResponse,
     DocumentIndexStatusResponse,
     DocumentListResponse,
@@ -78,6 +80,13 @@ async def get_document_artifacts(document_id: str) -> DocumentArtifactsResponse:
     return await _run_service_call(lambda: DocumentRegistryService().get_artifacts(document_id))
 
 
+@router.delete("/{document_id}", response_model=DocumentDeleteResponse)
+async def delete_document(document_id: str) -> DocumentDeleteResponse:
+    return await _run_service_call(
+        lambda: DocumentRegistryService().delete_uploaded_document(document_id)
+    )
+
+
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 async def get_document(document_id: str) -> DocumentDetailResponse:
     return await _run_service_call(lambda: DocumentRegistryService().get_document(document_id))
@@ -88,6 +97,8 @@ async def _run_service_call(operation: Callable[[], ResponseT]) -> ResponseT:
         return await asyncio.to_thread(operation)
     except DocumentRegistryNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentRegistryForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except DocumentRegistryAmbiguousError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except Exception as exc:

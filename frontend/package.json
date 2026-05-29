@@ -10,7 +10,8 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "vitest"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
@@ -18,11 +19,16 @@
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^26.1.0",
     "typescript": "^6.0.3",
-    "vite": "^8.0.14"
+    "vite": "^8.0.14",
+    "vitest": "^3.2.4"
   }
 }

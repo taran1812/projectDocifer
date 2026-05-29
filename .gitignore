@@ -83,3 +83,19 @@ logs/
 # Docker / local data exports
 # -----------------------------
 *.pid
+
+# -----------------------------
+# AI tooling / local dev tools
+# -----------------------------
+.agents/
+.claude-flow/
+.codex/
+.mcp.json
+graphify-out/
+docs/graphify-out/
+docs/superpowers/
+
+# -----------------------------
+# Test data / large binaries
+# -----------------------------
+dataPDFS/

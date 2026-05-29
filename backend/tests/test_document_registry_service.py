@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from docifer_backend.audit.models import ParseQualityAudit
 from docifer_backend.documents.service import (
+    DocumentRegistryForbiddenError,
     DocumentRegistryAmbiguousError,
     DocumentRegistryNotFoundError,
     DocumentRegistryService,
@@ -16,7 +17,7 @@ from docifer_backend.ingestion.status import IngestionStatus
 from docifer_backend.retrieval.document_registry import doc_id_for_document
 from docifer_backend.retrieval.models import TextChunkRecord
 from docifer_backend.retrieval.tables.indexing import TABLE_INDEX_STATUS_NO_EVIDENCE
-from docifer_backend.retrieval.tables.models import DocumentTableIndexRun
+from docifer_backend.retrieval.tables.models import DocumentTableIndexRun, TableEvidenceRecord
 from docifer_backend.retrieval.visuals.indexing import VISUAL_INDEX_STATUS_INDEXED, VISUAL_INDEX_STATUS_NO_EVIDENCE
 from docifer_backend.retrieval.visuals.models import DocumentVisualIndexRun, VisualEvidenceRecord
 from docifer_backend.schemas.documents import ModalityIndexStatus
@@ -112,6 +113,73 @@ def test_service_raises_not_found_for_unknown_document(session_factory):
         service.get_document("unknown")
 
 
+def test_service_flags_uploaded_documents(tmp_path, session_factory):
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+    uploaded_pdf = uploads_dir / "uploaded.pdf"
+    uploaded_pdf.write_bytes(b"%PDF")
+    _seed_uploaded_document(tmp_path, session_factory, uploaded_pdf)
+
+    response = DocumentRegistryService(
+        session_factory=session_factory,
+        uploads_dir=uploads_dir,
+    ).list_documents(limit=50, offset=0)
+
+    by_id = {document.document_id: document for document in response.documents}
+    assert by_id["uploaded"].is_uploaded is True
+
+
+def test_service_deletes_uploaded_document_records_vectors_and_files(tmp_path, session_factory):
+    uploads_dir = tmp_path / "uploads"
+    processed_dir = tmp_path / "processed"
+    uploads_dir.mkdir()
+    processed_dir.mkdir()
+    uploaded_pdf = uploads_dir / "uploaded.pdf"
+    uploaded_pdf.write_bytes(b"%PDF")
+    canonical_path = _seed_uploaded_document(tmp_path, session_factory, uploaded_pdf)
+    qdrant_client = FakeDeleteQdrantClient(existing_collections={
+        "docifer_text_chunks",
+        "docifer_table_evidence",
+        "docifer_visual_evidence",
+    })
+
+    response = DocumentRegistryService(
+        session_factory=session_factory,
+        qdrant_client=qdrant_client,
+        uploads_dir=uploads_dir,
+        processed_dir=processed_dir,
+    ).delete_uploaded_document("uploaded")
+
+    assert response.deleted is True
+    assert response.document_id == "uploaded"
+    assert not uploaded_pdf.exists()
+    assert not canonical_path.parent.exists()
+    assert qdrant_client.deleted_collections == [
+        "docifer_text_chunks",
+        "docifer_table_evidence",
+        "docifer_visual_evidence",
+    ]
+    with session_factory() as session:
+        assert session.scalar(select(Document).where(Document.id == "uploaded")) is None
+        assert session.query(TextChunkRecord).count() == 0
+        assert session.query(TableEvidenceRecord).count() == 0
+        assert session.query(VisualEvidenceRecord).count() == 0
+        assert session.query(IngestionJob).count() == 0
+        assert session.query(ParseQualityAudit).count() == 0
+
+
+def test_service_allows_delete_for_builtin_document(tmp_path, session_factory):
+    doc_ids = _seed_registry_documents(tmp_path, session_factory)
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+
+    result = DocumentRegistryService(
+        session_factory=session_factory,
+        uploads_dir=uploads_dir,
+    ).delete_uploaded_document(doc_ids["worldbank"])
+    assert result.deleted is True
+
+
 def test_service_rejects_ambiguous_public_doc_id(tmp_path, session_factory):
     _seed_registry_documents(tmp_path, session_factory)
     with session_factory() as session:
@@ -144,6 +212,156 @@ def test_service_initializes_schema_when_using_default_database(monkeypatch):
     assert service.session_factory == "default-session-factory"
     assert initialized == [True]
     service_module._ensure_database_schema.cache_clear()
+
+
+class FakeDeleteQdrantClient:
+    def __init__(self, *, existing_collections: set[str]):
+        self.existing_collections = existing_collections
+        self.deleted_collections: list[str] = []
+
+    def collection_exists(self, collection_name: str) -> bool:
+        return collection_name in self.existing_collections
+
+    def delete(self, *, collection_name: str, points_selector, wait: bool) -> None:
+        self.deleted_collections.append(collection_name)
+
+
+def _seed_uploaded_document(tmp_path: Path, session_factory, uploaded_pdf: Path) -> Path:
+    artifact_dir = tmp_path / "processed" / "uploaded-run"
+    artifact_dir.mkdir(parents=True)
+    canonical_path = artifact_dir / "canonical.json"
+    canonical_path.write_text("{}", encoding="utf-8")
+    visual_path = artifact_dir / "visuals" / "pages" / "page_0001.jpg"
+    visual_path.parent.mkdir(parents=True)
+    visual_path.write_bytes(b"jpg")
+
+    with session_factory() as session:
+        document = Document(
+            id="uploaded",
+            filename="uploaded.pdf",
+            source_path=str(uploaded_pdf),
+            content_hash="u" * 64,
+            file_size_bytes=uploaded_pdf.stat().st_size,
+            latest_job_id="job-uploaded",
+        )
+        session.add(document)
+        session.add(
+            IngestionJob(
+                id="job-uploaded",
+                document_id=document.id,
+                source_path=document.source_path,
+                content_hash=document.content_hash,
+                status=IngestionStatus.PARSED.value,
+                parser_name="docling",
+                artifact_path=str(canonical_path),
+            )
+        )
+        session.add(
+            DocumentIndexRun(
+                document_id=document.id,
+                content_hash=document.content_hash,
+                index_name="docifer_text_chunks",
+                index_version="v1",
+                status=IngestionStatus.INDEXED.value,
+            )
+        )
+        session.add(
+            TextChunkRecord(
+                id="text-uploaded",
+                document_id=document.id,
+                content_hash=document.content_hash,
+                chunk_id="uploaded:text:0000",
+                chunk_index=0,
+                text="Uploaded text evidence.",
+                page_start=1,
+                page_end=1,
+                source_path=document.source_path,
+                source_artifact_path=str(canonical_path),
+                qdrant_point_id="point-uploaded",
+            )
+        )
+        session.add(
+            TableEvidenceRecord(
+                id="table-record",
+                document_id=document.id,
+                content_hash=document.content_hash,
+                canonical_path=str(canonical_path),
+                filename=document.filename,
+                source_path=document.source_path,
+                source_artifact_path=str(canonical_path),
+                table_id="uploaded:table:0000",
+                table_index=0,
+                table_type="table_like_text",
+                source_kind="text_pattern",
+                raw_text="table evidence",
+                has_header=False,
+                table_readiness="weak",
+                extraction_method="text_pattern",
+                risk_flags_json=[],
+            )
+        )
+        session.add(
+            VisualEvidenceRecord(
+                id="visual-uploaded",
+                document_id=document.id,
+                content_hash=document.content_hash,
+                canonical_path=str(canonical_path),
+                filename=document.filename,
+                source_path=document.source_path,
+                source_artifact_path=str(canonical_path),
+                visual_id="uploaded:page:0001",
+                visual_index=0,
+                visual_type="page_render",
+                source_kind="rendered_page",
+                page_start=1,
+                page_end=1,
+                artifact_path=str(visual_path),
+                visual_readiness="good",
+                extraction_method="rendered_page",
+            )
+        )
+        session.add(
+            DocumentTableIndexRun(
+                document_id=document.id,
+                content_hash=document.content_hash,
+                canonical_path=str(canonical_path),
+                status=IngestionStatus.INDEXED.value,
+                table_evidence_count=1,
+                collection_name="docifer_table_evidence",
+            )
+        )
+        session.add(
+            DocumentVisualIndexRun(
+                document_id=document.id,
+                content_hash=document.content_hash,
+                canonical_path=str(canonical_path),
+                status=VISUAL_INDEX_STATUS_INDEXED,
+                visual_record_count=1,
+                collection_name="docifer_visual_evidence",
+            )
+        )
+        session.add(
+            ParseQualityAudit(
+                id="audit-uploaded",
+                document_id=document.id,
+                content_hash=document.content_hash,
+                canonical_path=str(canonical_path),
+                parser_name="docling",
+                audit_version="v1",
+                audit_run_id="audit-uploaded-run",
+                audit_status="completed",
+                is_latest=True,
+                quality_status="good",
+                text_readiness="good",
+                table_readiness="good",
+                visual_readiness="good",
+                risk_flags_json=[],
+                summary_json={"page_count": 1},
+            )
+        )
+        session.commit()
+
+    return canonical_path
 
 
 def _seed_registry_documents(tmp_path: Path, session_factory) -> dict[str, str]:

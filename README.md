@@ -1,82 +1,136 @@
 # Docifer
 
-Docifer is a document intelligence backend for PDF ingestion, multimodal evidence indexing, grounded retrieval, citation verification, and corpus-level evaluation.
+[![CI](https://github.com/tarannz/projectDOCIFER/actions/workflows/ci.yml/badge.svg)](https://github.com/tarannz/projectDOCIFER/actions/workflows/ci.yml)
 
-The project currently centers on the FastAPI backend in `backend/`, with phase notes and session history in `docs/`.
+**Multimodal document intelligence** — upload a PDF, get grounded answers with citations from text, tables, and figures.
 
-## Current Status
+---
 
-- Ingestion parses PDFs into canonical artifacts under `datasets/processed/`.
-- Text, table, and visual evidence can be indexed into Qdrant.
-- `/query` supports single-document, selected-document, and corpus-wide retrieval scopes.
-- Evidence responses preserve citations, scores, debug metadata, and citation-grounding verdicts.
-- Document registry APIs expose document identity, modality readiness, audit status, and artifacts.
-- Phase 15A hardened async API routes and pytest configuration before frontend work.
+## What it does
 
-## Common Commands
+- **Ingest**: PDF → Docling parse → canonical artifact → text chunks + table evidence + visual evidence indexed in Qdrant
+- **Retrieve**: hybrid dense/BM25 retrieval across any combination of indexed documents, with cross-encoder reranking
+- **Answer**: LLM answer grounded on retrieved evidence, with citation verification and abstention when evidence is insufficient
+- **Workbench**: React frontend for uploading documents, composing queries, and inspecting cited evidence
 
-Run the backend API:
+---
+
+## Architecture
+
+```
+Browser (React + Vite)
+    │  upload PDF, query, browse documents
+    ▼
+FastAPI backend (Python 3.12)
+    ├── /ingestion/upload     → IngestionService → DoclingParser / PdfiumParser (fallback)
+    │                                            → TextIndexingService
+    │                                            → TableIndexingService
+    │                                            → VisualIndexingService
+    ├── /query                → QueryService → Qdrant (text + table + visual)
+    │                                        → cross-encoder reranker (optional)
+    │                                        → OpenAI answer + citation verifier
+    └── /documents            → DocumentRegistryService → PostgreSQL
+```
+
+**Storage:**
+- PostgreSQL — document registry, ingestion job tracking
+- Qdrant — 3 collections: `docifer_text_chunks`, `docifer_table_evidence`, `docifer_visual_evidence`
+- Local disk — raw uploads, canonical parse artifacts
+
+---
+
+## Quick Start
 
 ```powershell
+# 1. Infrastructure
+docker run -d -p 5432:5432 -e POSTGRES_DB=docifer -e POSTGRES_USER=docifer_user -e POSTGRES_PASSWORD=docifer_password postgres:15
+docker run -d -p 6333:6333 qdrant/qdrant
+
+# 2. Backend
+cp .env.example .env   # fill in OPENAI_API_KEY
 uv run --project backend uvicorn docifer_backend.main:app --reload --host 127.0.0.1 --port 8000
-```
 
-Run the unit test suite from the repository root:
-
-```powershell
-uv run --project backend pytest --basetemp backend/.pytest_tmp
-```
-
-Run real Postgres/Qdrant integration tests when Docker services are available:
-
-```powershell
-$env:RUN_INTEGRATION_TESTS = "true"
-uv run --project backend pytest backend/tests/integration -v --basetemp backend/.pytest_integration_tmp
-```
-
-Run the current 68-question regression evaluation:
-
-```powershell
-uv run --project backend python -m docifer_backend.evaluation.runner `
-  --run-name phase15a_async_hardening_68q `
-  --top-k 12 `
-  --retrieval-mode hybrid `
-  --evidence-mode category `
-  --verify-citations `
-  --no-trace
-```
-
-## Frontend Workbench
-
-Run the backend:
-
-```powershell
-uv run --project backend uvicorn docifer_backend.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Run the frontend:
-
-```powershell
+# 3. Frontend
 Set-Location frontend
 npm install
 npm run dev
+# Open http://127.0.0.1:5173
 ```
 
-Open:
+See [docs/runbook.md](docs/runbook.md) for full setup, env vars, and production hardening.
 
-```text
-http://127.0.0.1:5173
+---
+
+## Demo
+
+1. Start backend + frontend (see Quick Start)
+2. Upload a PDF via the workbench drag-drop zone
+3. Wait for "is ready to query" (~5–30s depending on PDF size)
+4. Type a question — the answer includes inline citations linking back to source pages
+
+**Example questions:**
+- "What was net revenue in Q4 2025?"
+- "Summarize the risk factors"
+- "What tables are on page 12?"
+
+---
+
+## Benchmark Results (68-question eval corpus, 8 documents)
+
+| Metric | Score |
+|---|---|
+| Answer correctness | 83.8% |
+| Citation grounding | 91.2% |
+| Abstention rate (unanswerable) | 94.1% |
+| Retrieval recall@8 | 88.2% |
+
+Config: hybrid retrieval, category evidence mode, citation verification enabled, top-k=12.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | FastAPI, SQLAlchemy, Pydantic v2 |
+| PDF parsing | Docling (primary), pypdfium2 (fallback) |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| LLM | OpenAI `gpt-5.4-mini` (answers), `gpt-4o-mini` (vision) |
+| Vector store | Qdrant |
+| Database | PostgreSQL + psycopg3 |
+| Frontend | React 19, TypeScript, Vite |
+| CI | GitHub Actions |
+
+---
+
+## Project Structure
+
+```
+backend/
+  src/docifer_backend/
+    api/            FastAPI routers
+    ingestion/      PDF parse → canonical artifact
+    retrieval/      Qdrant query, reranker, answer LLM
+    documents/      Document registry service
+    evaluation/     Eval runner and harness
+  tests/            Unit + integration tests
+
+frontend/
+  src/
+    components/     DocumentList, QueryComposer, UploadPanel
+    lib/api.ts      Typed API client
+    types/api.ts    Shared API types
+
+docs/
+  runbook.md        Setup, env vars, production checklist
+  phase*.md         Phase-by-phase design notes
+  DOCIFER_REFERENCE.md  Full technical reference with benchmarks
 ```
 
-The frontend expects the backend at `http://127.0.0.1:8000` by default. Override with:
-
-```text
-VITE_DOCIFER_API_URL=http://127.0.0.1:8000
-```
+---
 
 ## Key Documentation
 
-- `backend/README.md` - backend API, phase notes, and validation commands.
-- `docs/session-changes-2026-05-24.md` - latest session outcomes.
-- `docs/phase12-final-ablation-benchmark.md` - retrieval ablation benchmark and recommended query configuration.
-- `docs/phase10-document-registry-apis.md` - document registry API notes.
+- [docs/runbook.md](docs/runbook.md) — setup, deployment, troubleshooting
+- [DOCIFER_REFERENCE.md](DOCIFER_REFERENCE.md) — full technical reference with benchmarks
+- [backend/README.md](backend/README.md) — backend API details and phase notes

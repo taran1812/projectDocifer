@@ -1,4 +1,4 @@
-import { FileText } from "lucide-react";
+import { FileText, Trash2 } from "lucide-react";
 
 import type { DocumentSummary, ModalityIndexStatus } from "../types/api";
 
@@ -6,6 +6,8 @@ interface DocumentListProps {
   documents: DocumentSummary[];
   selectedDocumentId: string | null;
   onSelect: (document: DocumentSummary) => void;
+  onRemove: (document: DocumentSummary) => void;
+  removingDocumentId: string | null;
 }
 
 function ModalityBadge({ label, status }: { label: string; status: ModalityIndexStatus }) {
@@ -17,7 +19,13 @@ function ModalityBadge({ label, status }: { label: string; status: ModalityIndex
   );
 }
 
-export function DocumentList({ documents, selectedDocumentId, onSelect }: DocumentListProps) {
+export function DocumentList({
+  documents,
+  selectedDocumentId,
+  onSelect,
+  onRemove,
+  removingDocumentId,
+}: DocumentListProps) {
   return (
     <>
       <div className="panel-heading">
@@ -29,23 +37,37 @@ export function DocumentList({ documents, selectedDocumentId, onSelect }: Docume
       </div>
       <div className="document-list">
         {documents.map((document) => (
-          <button
+          <article
             className={`document-item ${
               selectedDocumentId === document.document_id ? "is-selected" : ""
             }`}
             key={document.document_id}
-            onClick={() => onSelect(document)}
-            type="button"
           >
-            <span className="document-id">{document.doc_id ?? "DOC"}</span>
-            <span className="document-name">{document.filename}</span>
-            <span className="document-status">{document.latest_ingestion_status ?? "unknown"}</span>
-            <span className="modality-row">
-              <ModalityBadge label="Text" status={document.modalities.text} />
-              <ModalityBadge label="Table" status={document.modalities.table} />
-              <ModalityBadge label="Visual" status={document.modalities.visual} />
-            </span>
-          </button>
+            <button className="document-select" onClick={() => onSelect(document)} type="button">
+              <span className="document-id">{document.doc_id ?? "DOC"}</span>
+              <span className="document-name">{document.filename}</span>
+              <span className="document-status">
+                {document.latest_ingestion_status ?? "unknown"}
+                {document.is_uploaded ? " / uploaded" : ""}
+              </span>
+              <span className="modality-row">
+                <ModalityBadge label="Text" status={document.modalities.text} />
+                <ModalityBadge label="Table" status={document.modalities.table} />
+                <ModalityBadge label="Visual" status={document.modalities.visual} />
+              </span>
+            </button>
+            <button
+              aria-label={`Remove ${document.filename}`}
+              className="document-remove"
+              disabled={removingDocumentId === document.document_id}
+              onClick={() => onRemove(document)}
+              title="Remove document"
+              type="button"
+            >
+              <Trash2 size={14} />
+              <span>{removingDocumentId === document.document_id ? "Removing" : "Remove"}</span>
+            </button>
+          </article>
         ))}
       </div>
     </>

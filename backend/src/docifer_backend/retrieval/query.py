@@ -75,6 +75,15 @@ def _is_abstention(answer: str) -> bool:
     return any(m in normalised for m in _ABSTENTION_MARKERS)
 
 
+def _is_missing_vector_collection_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "collection" in message and (
+        "not found" in message
+        or "doesn't exist" in message
+        or "does not exist" in message
+    )
+
+
 def _disabled_rerank_debug(
     *,
     rerank_requested: bool,
@@ -660,8 +669,8 @@ class TextQueryService:
                     content_hash=content_hash,
                     content_hashes=content_hashes,
                 )
-            except (ValueError, Exception) as exc:
-                if "not found" in str(exc).lower() or "collection" in str(exc).lower():
+            except Exception as exc:
+                if _is_missing_vector_collection_error(exc):
                     return []
                 raise
         if retrieval_mode == "bm25":
@@ -673,14 +682,20 @@ class TextQueryService:
             )
         if retrieval_mode == "hybrid":
             query_vector = self.ai_provider.embed_texts([question])[0]
-            dense_results = search_text_chunks(
-                self.qdrant_client,
-                collection_name=self.collection_name,
-                query_vector=query_vector,
-                top_k=max(top_k * 2, top_k),
-                content_hash=content_hash,
-                content_hashes=content_hashes,
-            )
+            try:
+                dense_results = search_text_chunks(
+                    self.qdrant_client,
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    top_k=max(top_k * 2, top_k),
+                    content_hash=content_hash,
+                    content_hashes=content_hashes,
+                )
+            except Exception as exc:
+                if _is_missing_vector_collection_error(exc):
+                    dense_results = []
+                else:
+                    raise
             lexical_results = self.bm25_retriever.search(
                 query=question,
                 top_k=max(top_k * 2, top_k),

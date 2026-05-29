@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { Evidence, QueryResponse } from "../types/api";
 
@@ -24,6 +24,10 @@ function EvidenceItem({ item }: { item: Evidence }) {
 
 export function EvidencePanel({ response }: EvidencePanelProps) {
   const [tab, setTab] = useState<Tab>("citations");
+
+  useEffect(() => {
+    setTab("citations");
+  }, [response]);
 
   const retrieved = response
     ? [...response.retrieved_evidence, ...response.table_evidence, ...response.visual_evidence]
@@ -57,8 +61,8 @@ export function EvidencePanel({ response }: EvidencePanelProps) {
 
       {response && tab === "citations" ? (
         <div className="evidence-stack">
-          {[...response.answer_citations, ...response.table_citations, ...response.visual_citations].map((citation) => (
-            <article className="evidence-item" key={`${citation.citation_id}-${citation.source_path}`}>
+          {[...response.answer_citations, ...response.table_citations, ...response.visual_citations].map((citation, idx) => (
+            <article className="evidence-item" key={`${idx}-${citation.citation_id}-${citation.source_path}`}>
               <div className="evidence-meta">
                 <strong>{citation.citation_id}</strong>
                 <span>{citation.filename ?? citation.doc_id ?? "source"}</span>

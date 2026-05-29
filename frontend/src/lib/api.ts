@@ -1,4 +1,5 @@
 import type {
+  DocumentDeleteResponse,
   DocumentListResponse,
   HealthResponse,
   IngestionJobResponse,
@@ -22,28 +23,56 @@ export class ApiError extends Error {
   }
 }
 
+function parseErrorDetails(rawDetails: string): unknown {
+  if (!rawDetails) {
+    return "";
+  }
+  try {
+    return JSON.parse(rawDetails);
+  } catch {
+    return rawDetails;
+  }
+}
+
+function getErrorMessage(status: number, details: unknown) {
+  if (
+    details &&
+    typeof details === "object" &&
+    "detail" in details &&
+    typeof details.detail === "string"
+  ) {
+    return details.detail;
+  }
+  if (typeof details === "string" && details.trim()) {
+    return details;
+  }
+  return `Request failed with status ${status}`;
+}
+
+async function throwIfNotOk(response: Response): Promise<void> {
+  if (!response.ok) {
+    const rawDetails = await response.text();
+    const details = parseErrorDetails(rawDetails);
+    throw new ApiError(getErrorMessage(response.status, details), response.status, details);
+  }
+}
+
+const API_KEY = import.meta.env.VITE_DOCIFER_API_KEY ?? "";
+
+function apiKeyHeader(): Record<string, string> {
+  return API_KEY ? { "X-API-Key": API_KEY } : {};
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...apiKeyHeader(),
       ...init?.headers,
     },
   });
-
-  if (!response.ok) {
-    const rawDetails = await response.text();
-    let details: unknown = rawDetails;
-    if (rawDetails) {
-      try {
-        details = JSON.parse(rawDetails);
-      } catch {
-        details = rawDetails;
-      }
-    }
-    throw new ApiError(`Request failed with status ${response.status}`, response.status, details);
-  }
-
+  await throwIfNotOk(response);
   return response.json() as Promise<T>;
 }
 
@@ -57,23 +86,11 @@ async function requestFormData<T>(
     method: "POST",
     body: formData,
     headers: {
+      ...apiKeyHeader(),
       ...init?.headers,
     },
   });
-
-  if (!response.ok) {
-    const rawDetails = await response.text();
-    let details: unknown = rawDetails;
-    if (rawDetails) {
-      try {
-        details = JSON.parse(rawDetails);
-      } catch {
-        details = rawDetails;
-      }
-    }
-    throw new ApiError(`Request failed with status ${response.status}`, response.status, details);
-  }
-
+  await throwIfNotOk(response);
   return response.json() as Promise<T>;
 }
 
@@ -81,6 +98,10 @@ export const dociferApi = {
   health: () => requestJson<HealthResponse>("/health"),
   ready: () => requestJson<ReadyResponse>("/ready"),
   documents: () => requestJson<DocumentListResponse>("/documents?limit=200"),
+  deleteDocument: (documentId: string): Promise<DocumentDeleteResponse> =>
+    requestJson<DocumentDeleteResponse>(`/documents/${documentId}`, {
+      method: "DELETE",
+    }),
   query: (body: QueryRequest) =>
     requestJson<QueryResponse>("/query", {
       method: "POST",

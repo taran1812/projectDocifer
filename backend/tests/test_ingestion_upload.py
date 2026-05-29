@@ -1,4 +1,5 @@
 import io
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -46,10 +47,8 @@ def test_upload_saves_file_and_returns_job_response(tmp_path, monkeypatch):
         "docifer_backend.api.ingestion._get_uploads_dir",
         lambda: tmp_path,
     )
-    with patch(
-        "docifer_backend.api.ingestion._ingest_pdf",
-        return_value=_fake_outcome(),
-    ):
+    with patch("docifer_backend.api.ingestion._ingest_pdf", return_value=_fake_outcome()), \
+         patch("docifer_backend.api.ingestion._index_all"):
         client = _make_client()
         response = client.post(
             "/ingestion/upload",
@@ -66,12 +65,78 @@ def test_upload_saves_file_and_returns_job_response(tmp_path, monkeypatch):
     body = response.json()
     assert body["job_id"] == "test-job-123"
     assert body["document_id"] == "doc-456"
-    assert body["status"] == "completed"
+    assert body["status"] == "indexed"
     assert body["reused_existing"] is False
     assert body["error_message"] is None
     saved = list(tmp_path.glob("*.pdf"))
     assert len(saved) == 1
+    assert saved[0].name.endswith("_annual_report.pdf")
+    assert not saved[0].name.endswith(".pdf.pdf")
     assert saved[0].read_bytes() == b"%PDF-1.4"
+
+
+def test_upload_rejects_file_above_upload_size_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "docifer_backend.api.ingestion._get_uploads_dir",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "docifer_backend.api.ingestion.get_settings",
+        lambda: SimpleNamespace(
+            docling_max_file_size_bytes=1,
+            upload_max_file_size_bytes=16,
+        ),
+    )
+    with patch(
+        "docifer_backend.api.ingestion._ingest_pdf",
+        return_value=_fake_outcome(),
+    ) as ingest_pdf:
+        client = _make_client()
+        response = client.post(
+            "/ingestion/upload",
+            files={
+                "file": (
+                    "large.pdf",
+                    io.BytesIO(b"%PDF-1.4" + b"0" * 32),
+                    "application/pdf",
+                )
+            },
+        )
+
+    assert response.status_code == 413
+    assert "exceeds" in response.json()["detail"].lower()
+    ingest_pdf.assert_not_called()
+    assert list(tmp_path.glob("*.pdf")) == []
+
+
+def test_upload_allows_file_above_docling_threshold_when_under_upload_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "docifer_backend.api.ingestion._get_uploads_dir",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "docifer_backend.api.ingestion.get_settings",
+        lambda: SimpleNamespace(
+            docling_max_file_size_bytes=1,
+            upload_max_file_size_bytes=1024,
+        ),
+    )
+    with patch("docifer_backend.api.ingestion._ingest_pdf", return_value=_fake_outcome()) as ingest_pdf, \
+         patch("docifer_backend.api.ingestion._index_all"):
+        client = _make_client()
+        response = client.post(
+            "/ingestion/upload",
+            files={
+                "file": (
+                    "large.pdf",
+                    io.BytesIO(b"%PDF-1.4" + b"0" * 32),
+                    "application/pdf",
+                )
+            },
+        )
+
+    assert response.status_code == 202
+    ingest_pdf.assert_called_once()
 
 
 def test_upload_returns_400_when_ingestion_raises_value_error(tmp_path, monkeypatch):

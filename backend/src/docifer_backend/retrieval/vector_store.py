@@ -239,6 +239,30 @@ def delete_table_evidence_by_content_hash(
     )
 
 
+def delete_text_chunks_by_content_hash(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    content_hash: str,
+) -> None:
+    if not client.collection_exists(collection_name):
+        return
+    client.delete(
+        collection_name=collection_name,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="content_hash",
+                        match=models.MatchValue(value=content_hash),
+                    )
+                ]
+            )
+        ),
+        wait=True,
+    )
+
+
 def search_text_chunks(
     client: QdrantClient,
     *,

@@ -89,6 +89,7 @@ class DocumentSummaryResponse(BaseModel):
     content_hash: str
     filename: str
     source_path: str
+    is_uploaded: bool = False
     parser_name: str | None
     latest_ingestion_status: str | None
     quality_status: str | None
@@ -108,11 +109,18 @@ class DocumentDetailResponse(BaseModel):
     content_hash: str
     filename: str
     source_path: str
+    is_uploaded: bool = False
     file_size_bytes: int
     latest_ingestion: LatestIngestionResponse | None
     modalities: DocumentModalitiesResponse
     latest_audit: DocumentAuditSummaryResponse | None
     artifacts: list[ArtifactReference]
+
+
+class DocumentDeleteResponse(BaseModel):
+    document_id: str
+    filename: str
+    deleted: bool
 
 
 class DocumentIndexStatusResponse(BaseModel):

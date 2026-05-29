@@ -224,6 +224,50 @@ def test_hybrid_query_exposes_score_breakdown_and_verifier(tmp_path, session_fac
     assert outcome.citation_verification.verdict == "supported"
 
 
+def test_hybrid_query_falls_back_to_bm25_when_vector_collection_is_missing(tmp_path, session_factory):
+    canonical_path, content_hash, source_path = write_canonical_artifacts(tmp_path)
+    with session_factory() as session:
+        session.add(
+            Document(
+                filename="sample.pdf",
+                source_path=source_path,
+                content_hash=content_hash,
+                file_size_bytes=100,
+            )
+        )
+        session.commit()
+
+    provider = FakeAIProvider()
+    qdrant_client = QdrantClient(":memory:")
+    TextIndexingService(
+        session_factory=session_factory,
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        collection_name="test_text_chunks",
+        initialize_schema=False,
+    ).index_canonical_document(canonical_path)
+    qdrant_client.delete_collection("test_text_chunks")
+
+    outcome = TextQueryService(
+        ai_provider=provider,
+        qdrant_client=qdrant_client,
+        session_factory=session_factory,
+        collection_name="test_text_chunks",
+    ).query_sync(
+        question="middle-income innovation",
+        content_hash=content_hash,
+        top_k=2,
+        retrieval_mode="hybrid",
+        verify_citations=True,
+    )
+
+    assert outcome.evidence
+    assert outcome.evidence[0].retrieval_mode == "hybrid"
+    assert outcome.evidence[0].dense_score is None
+    assert outcome.evidence[0].lexical_score is not None
+    assert "[C1]" in outcome.answer
+
+
 def write_canonical_artifacts(tmp_path: Path) -> tuple[Path, str, str]:
     content_hash = "b" * 64
     source_path = str(tmp_path / "sample.pdf")

@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import logging
 from pathlib import Path
+import shutil
 
-from sqlalchemy import func, select
+logger = logging.getLogger(__name__)
+
+from qdrant_client import QdrantClient
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from docifer_backend.audit.models import ParseQualityAudit
-from docifer_backend.config.paths import resolve_project_path
+from docifer_backend.config.paths import PROJECT_ROOT, resolve_project_path
 from docifer_backend.config.settings import get_settings
 from docifer_backend.ingestion.models import Document, DocumentIndexRun, IngestionJob
 from docifer_backend.ingestion.status import IngestionStatus
@@ -20,6 +25,11 @@ from docifer_backend.retrieval.document_registry import (
 from docifer_backend.retrieval.models import TextChunkRecord
 from docifer_backend.retrieval.tables.indexing import TABLE_INDEX_STATUS_NO_EVIDENCE
 from docifer_backend.retrieval.tables.models import DocumentTableIndexRun, TableEvidenceRecord
+from docifer_backend.retrieval.vector_store import (
+    delete_table_evidence_by_content_hash,
+    delete_text_chunks_by_content_hash,
+    delete_visual_evidence_by_content_hash,
+)
 from docifer_backend.retrieval.visuals.indexing import VISUAL_INDEX_STATUS_NO_EVIDENCE
 from docifer_backend.retrieval.visuals.models import DocumentVisualIndexRun, VisualEvidenceRecord
 from docifer_backend.schemas.documents import (
@@ -27,6 +37,7 @@ from docifer_backend.schemas.documents import (
     DocumentArtifactsResponse,
     DocumentAuditResponse,
     DocumentAuditSummaryResponse,
+    DocumentDeleteResponse,
     DocumentDetailResponse,
     DocumentIndexStatusResponse,
     DocumentListResponse,
@@ -38,6 +49,7 @@ from docifer_backend.schemas.documents import (
     VisualArtifactReference,
 )
 from docifer_backend.storage.database import create_database_schema, get_session_factory
+from docifer_backend.storage.qdrant import get_qdrant_client
 
 
 class DocumentRegistryNotFoundError(LookupError):
@@ -46,6 +58,10 @@ class DocumentRegistryNotFoundError(LookupError):
 
 class DocumentRegistryAmbiguousError(LookupError):
     """Raised when a requested identity maps to more than one document."""
+
+
+class DocumentRegistryForbiddenError(PermissionError):
+    """Raised when a document operation is not allowed."""
 
 
 @dataclass(frozen=True)
@@ -66,6 +82,9 @@ class DocumentRegistryService:
         *,
         session_factory: sessionmaker[Session] | None = None,
         identity_resolver: DocumentScopeResolver | None = None,
+        qdrant_client: QdrantClient | None = None,
+        uploads_dir: str | Path | None = None,
+        processed_dir: str | Path | None = None,
     ) -> None:
         if session_factory is None:
             _ensure_database_schema()
@@ -73,6 +92,9 @@ class DocumentRegistryService:
         self.identity_resolver = identity_resolver or DocumentScopeResolver(
             session_factory=self.session_factory
         )
+        self.qdrant_client = qdrant_client
+        self.uploads_dir = _resolve_path(uploads_dir or _default_uploads_dir())
+        self.processed_dir = _resolve_path(processed_dir or _default_processed_dir())
         settings = get_settings()
         self.text_collection = settings.qdrant_text_collection
         self.table_collection = settings.qdrant_table_collection
@@ -128,6 +150,7 @@ class DocumentRegistryService:
             content_hash=document.content_hash,
             filename=document.filename,
             source_path=document.source_path,
+            is_uploaded=_is_uploaded_path(document.source_path, self.uploads_dir),
             file_size_bytes=document.file_size_bytes,
             latest_ingestion=self._ingestion_response(job),
             modalities=self._modalities(document.id, context),
@@ -219,6 +242,55 @@ class DocumentRegistryService:
             ],
         )
 
+    def delete_uploaded_document(self, document_id: str) -> DocumentDeleteResponse:
+        with self.session_factory() as session:
+            document = session.scalar(select(Document).where(Document.id == document_id))
+            if document is None:
+                raise DocumentRegistryNotFoundError("Document not found.")
+            filename = document.filename
+            content_hash = document.content_hash
+            source_path = document.source_path
+            jobs = list(
+                session.scalars(
+                    select(IngestionJob).where(IngestionJob.document_id == document_id)
+                )
+            )
+            audits = list(
+                session.scalars(
+                    select(ParseQualityAudit).where(
+                        ParseQualityAudit.document_id == document_id
+                    )
+                )
+            )
+            visual_records = list(
+                session.scalars(
+                    select(VisualEvidenceRecord).where(
+                        VisualEvidenceRecord.document_id == document_id
+                    )
+                )
+            )
+            artifact_dirs = _collect_artifact_dirs(
+                jobs=jobs,
+                audits=audits,
+                visual_records=visual_records,
+                processed_dir=self.processed_dir,
+            )
+
+            self._delete_vector_points(content_hash)
+            _delete_database_rows(session, document_id=document_id)
+            session.delete(document)
+            session.commit()
+
+        _unlink_file_inside(source_path, root=self.uploads_dir)
+        for artifact_dir in artifact_dirs:
+            _remove_tree_inside(artifact_dir, root=self.processed_dir)
+
+        return DocumentDeleteResponse(
+            document_id=document_id,
+            filename=filename,
+            deleted=True,
+        )
+
     def _document_and_context(self, document_id: str) -> tuple[Document, _RegistryContext]:
         with self.session_factory() as session:
             document = session.scalar(select(Document).where(Document.id == document_id))
@@ -305,11 +377,33 @@ class DocumentRegistryService:
             content_hash=document.content_hash,
             filename=document.filename,
             source_path=document.source_path,
+            is_uploaded=_is_uploaded_path(document.source_path, self.uploads_dir),
             parser_name=job.parser_name if job else None,
             latest_ingestion_status=job.status if job else None,
             quality_status=audit.quality_status if audit else None,
             modalities=self._modalities(document.id, context),
         )
+
+    def _delete_vector_points(self, content_hash: str) -> None:
+        client = self.qdrant_client or get_qdrant_client()
+        for delete_fn, collection_name in (
+            (delete_text_chunks_by_content_hash, self.text_collection),
+            (delete_table_evidence_by_content_hash, self.table_collection),
+            (delete_visual_evidence_by_content_hash, self.visual_collection),
+        ):
+            try:
+                delete_fn(
+                    client,
+                    collection_name=collection_name,
+                    content_hash=content_hash,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Unable to delete %s Qdrant points for %s: %s",
+                    collection_name,
+                    content_hash,
+                    exc,
+                )
 
     def _modalities(
         self,
@@ -569,6 +663,94 @@ def _path_exists(path: str | Path | None) -> bool:
 
 def _stable_path(path: str | Path | None) -> str | None:
     return Path(path).as_posix() if path is not None else None
+
+
+def _default_uploads_dir() -> Path:
+    return PROJECT_ROOT / "backend" / "uploads"
+
+
+def _default_processed_dir() -> Path:
+    return PROJECT_ROOT / "datasets" / "processed"
+
+
+def _resolve_path(path: str | Path) -> Path:
+    return resolve_project_path(path).resolve(strict=False)
+
+
+def _is_uploaded_path(path: str | Path, uploads_dir: Path) -> bool:
+    candidate = _resolve_path(path)
+    return _is_relative_to(candidate, uploads_dir)
+
+
+def _collect_artifact_dirs(
+    *,
+    jobs: list[IngestionJob],
+    audits: list[ParseQualityAudit],
+    visual_records: list[VisualEvidenceRecord],
+    processed_dir: Path,
+) -> list[Path]:
+    candidates: set[Path] = set()
+    for job in jobs:
+        if job.artifact_path:
+            candidates.add(_resolve_path(job.artifact_path).parent)
+    for audit in audits:
+        if audit.canonical_path:
+            candidates.add(_resolve_path(audit.canonical_path).parent)
+        if audit.artifact_json_path:
+            candidates.add(_resolve_path(audit.artifact_json_path).parent)
+        if audit.artifact_md_path:
+            candidates.add(_resolve_path(audit.artifact_md_path).parent)
+    for visual in visual_records:
+        if visual.canonical_path:
+            candidates.add(_resolve_path(visual.canonical_path).parent)
+
+    return sorted(
+        (
+            path
+            for path in candidates
+            if path != processed_dir and _is_relative_to(path, processed_dir)
+        ),
+        key=lambda item: len(item.parts),
+        reverse=True,
+    )
+
+
+def _delete_database_rows(session: Session, *, document_id: str) -> None:
+    for model in (
+        TextChunkRecord,
+        TableEvidenceRecord,
+        VisualEvidenceRecord,
+        DocumentIndexRun,
+        DocumentTableIndexRun,
+        DocumentVisualIndexRun,
+        ParseQualityAudit,
+        IngestionJob,
+    ):
+        session.execute(delete(model).where(model.document_id == document_id))
+
+
+def _unlink_file_inside(path: str | Path, *, root: Path) -> None:
+    candidate = _resolve_path(path)
+    if not _is_relative_to(candidate, root):
+        return
+    if candidate.exists() and candidate.is_file():
+        candidate.unlink()
+
+
+def _remove_tree_inside(path: Path, *, root: Path) -> None:
+    candidate = _resolve_path(path)
+    if candidate == root or not _is_relative_to(candidate, root):
+        return
+    if candidate.exists() and candidate.is_dir():
+        shutil.rmtree(candidate)
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 @lru_cache(maxsize=1)
