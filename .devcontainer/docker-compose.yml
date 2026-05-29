@@ -1,0 +1,34 @@
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/universal:2
+    volumes:
+      - ../:/workspace:cached
+    command: sleep infinity
+    environment:
+      DATABASE_URL: postgresql+psycopg://docifer_user:docifer_password@postgres:5432/docifer
+      QDRANT_URL: http://qdrant:6333
+      APP_HOST: 0.0.0.0
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+    depends_on:
+      - postgres
+      - qdrant
+
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: docifer
+      POSTGRES_USER: docifer_user
+      POSTGRES_PASSWORD: docifer_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+volumes:
+  postgres-data:
+  qdrant-data:
