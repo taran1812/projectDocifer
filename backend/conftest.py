@@ -27,6 +27,7 @@ def _local_basetemp() -> Path:
 
 def pytest_configure(config: pytest.Config) -> None:
     """Redirect tmp_path to a local dir if the system temp is inaccessible."""
+    os.environ.setdefault("DATABASE_URL", "sqlite+psycopg2:///:memory:")
     system_temp = Path(tempfile.gettempdir())
     sentinel = system_temp / f"pytest-of-{os.environ.get('USERNAME', os.environ.get('USER', 'user'))}"
     if sentinel.exists():
