@@ -38,7 +38,7 @@ router = APIRouter(tags=["retrieval"])
 
 def _validate_canonical_path(path_str: str) -> Path:
     settings = get_settings()
-    resolved = Path(path_str).resolve()
+    resolved = resolve_project_path(path_str).resolve()
     allowed = [
         resolve_project_path(settings.processed_data_dir),
         resolve_project_path(settings.artifacts_dir),

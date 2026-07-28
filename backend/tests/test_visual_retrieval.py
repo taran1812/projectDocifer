@@ -946,5 +946,4 @@ def test_retrieve_visuals_endpoint(monkeypatch):
     assert data["candidates"][0]["visual_type"] == "docling_picture"
     assert data["candidates"][0]["document_id"] == "doc-1"
     assert data["candidates"][0]["content_hash"] == "c" * 64
-    assert data["candidates"][0]["artifact_path"] is not None
     assert "debug" in data

@@ -18,7 +18,7 @@ _PDF_MAGIC = b"%PDF"
 
 
 def _validate_data_path(path_str: str, *allowed_roots: Path) -> Path:
-    resolved = Path(path_str).resolve()
+    resolved = resolve_project_path(path_str).resolve()
     for root in allowed_roots:
         if resolved.is_relative_to(root.resolve()):
             return resolved
