@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     api_key: str | None = None
 
-    database_url: str = "postgresql+psycopg://docifer_user:docifer_password@localhost:5432/docifer"
+    database_url: str
 
     qdrant_url: str = "http://localhost:6333"
 

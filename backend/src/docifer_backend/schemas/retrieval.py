@@ -74,8 +74,6 @@ class QueryRequest(BaseModel):
 class CitationResponse(BaseModel):
     citation_id: str
     chunk_id: str
-    source_path: str
-    source_artifact_path: str
     page_start: int | None
     page_end: int | None
     score: float
@@ -109,8 +107,6 @@ class EvidenceResponse(BaseModel):
     document_id: str | None = None
     filename: str | None = None
     content_hash: str | None = None
-    source_path: str
-    source_artifact_path: str
     page_start: int | None
     page_end: int | None
 
@@ -119,8 +115,6 @@ class TableCitationResponse(BaseModel):
     citation_id: str
     evidence_type: str
     table_id: str
-    source_path: str
-    source_artifact_path: str
     page_start: int | None
     page_end: int | None
     table_type: str
@@ -154,8 +148,6 @@ class TableEvidenceResponse(BaseModel):
     markdown_table: str | None = None
     structured_json: dict | None = None
     section_heading: str | None = None
-    source_path: str
-    source_artifact_path: str
     source_chunk_id: str | None = None
     page_start: int | None
     page_end: int | None
@@ -165,9 +157,6 @@ class VisualCitationResponse(BaseModel):
     citation_id: str
     evidence_type: str
     visual_id: str
-    source_path: str
-    source_artifact_path: str
-    artifact_path: str | None = None
     page_start: int | None
     page_end: int | None
     visual_type: str
@@ -197,15 +186,12 @@ class VisualEvidenceResponse(BaseModel):
     source_kind: str
     page_start: int | None
     page_end: int | None
-    artifact_path: str | None = None
     caption: str | None = None
     section_heading: str | None = None
     nearby_text: str | None = None
     figure_label: str | None = None
     visual_readiness: str
     filename: str
-    source_path: str
-    source_artifact_path: str
 
 
 class VisualObservationResponse(BaseModel):
@@ -287,15 +273,12 @@ class VisualCandidateResponse(BaseModel):
     source_kind: str
     page_start: int | None
     page_end: int | None
-    artifact_path: str | None = None
     caption: str | None = None
     section_heading: str | None = None
     nearby_text: str | None = None
     figure_label: str | None = None
     visual_readiness: str
     filename: str
-    source_path: str
-    source_artifact_path: str
 
 
 class VisualRetrieveResponse(BaseModel):

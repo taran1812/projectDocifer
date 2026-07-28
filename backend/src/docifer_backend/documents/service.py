@@ -149,7 +149,6 @@ class DocumentRegistryService:
             doc_id=doc_id_for_document(document),
             content_hash=document.content_hash,
             filename=document.filename,
-            source_path=document.source_path,
             is_uploaded=_is_uploaded_path(document.source_path, self.uploads_dir),
             file_size_bytes=document.file_size_bytes,
             latest_ingestion=self._ingestion_response(job),
@@ -376,7 +375,6 @@ class DocumentRegistryService:
             doc_id=doc_id_for_document(document),
             content_hash=document.content_hash,
             filename=document.filename,
-            source_path=document.source_path,
             is_uploaded=_is_uploaded_path(document.source_path, self.uploads_dir),
             parser_name=job.parser_name if job else None,
             latest_ingestion_status=job.status if job else None,
@@ -587,7 +585,6 @@ class DocumentRegistryService:
                     [
                         summary.doc_id,
                         summary.filename,
-                        summary.source_path,
                         summary.content_hash,
                     ],
                 )

@@ -62,7 +62,7 @@ export function EvidencePanel({ response }: EvidencePanelProps) {
       {response && tab === "citations" ? (
         <div className="evidence-stack">
           {[...response.answer_citations, ...response.table_citations, ...response.visual_citations].map((citation, idx) => (
-            <article className="evidence-item" key={`${idx}-${citation.citation_id}-${citation.source_path}`}>
+            <article className="evidence-item" key={`${idx}-${citation.citation_id}`}>
               <div className="evidence-meta">
                 <strong>{citation.citation_id}</strong>
                 <span>{citation.filename ?? citation.doc_id ?? "source"}</span>
@@ -77,11 +77,11 @@ export function EvidencePanel({ response }: EvidencePanelProps) {
       ) : null}
 
       {response && tab === "retrieved" ? (
-        <div className="evidence-stack">{retrieved.map((item) => <EvidenceItem item={item} key={`${item.citation_id}-${item.source_path}`} />)}</div>
+        <div className="evidence-stack">{retrieved.map((item, idx) => <EvidenceItem item={item} key={`${idx}-${item.citation_id}`} />)}</div>
       ) : null}
 
       {response && tab === "unused" ? (
-        <div className="evidence-stack">{unused.map((item) => <EvidenceItem item={item} key={`${item.citation_id}-${item.source_path}`} />)}</div>
+        <div className="evidence-stack">{unused.map((item, idx) => <EvidenceItem item={item} key={`${idx}-${item.citation_id}`} />)}</div>
       ) : null}
 
       {response && tab === "debug" ? (

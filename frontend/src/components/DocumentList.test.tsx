@@ -10,7 +10,6 @@ function makeDoc(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
     doc_id: "DOC-1",
     content_hash: "abc123",
     filename: "report.pdf",
-    source_path: "uploads/report.pdf",
     is_uploaded: true,
     latest_ingestion_status: "indexed",
     modalities: {

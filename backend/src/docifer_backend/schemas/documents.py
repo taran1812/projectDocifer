@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 DocumentModalityStatus = Literal[
@@ -28,7 +28,7 @@ class DocumentModalitiesResponse(BaseModel):
 
 
 class ArtifactReference(BaseModel):
-    path: str | None
+    path: str | None = Field(default=None, exclude=True)
     exists: bool
     source: str
     generated_by: str
@@ -39,7 +39,7 @@ class VisualArtifactReference(BaseModel):
     visual_id: str
     visual_type: str
     page_start: int | None
-    artifact_path: str | None
+    artifact_path: str | None = Field(default=None, exclude=True)
     exists: bool
     source: str
 
@@ -49,7 +49,7 @@ class LatestIngestionResponse(BaseModel):
     status: str
     parser_name: str | None
     parser_version: str | None
-    artifact_path: str | None
+    artifact_path: str | None = Field(default=None, exclude=True)
     created_at: datetime
     completed_at: datetime | None
 
@@ -88,7 +88,6 @@ class DocumentSummaryResponse(BaseModel):
     doc_id: str | None
     content_hash: str
     filename: str
-    source_path: str
     is_uploaded: bool = False
     parser_name: str | None
     latest_ingestion_status: str | None
@@ -108,7 +107,6 @@ class DocumentDetailResponse(BaseModel):
     doc_id: str | None
     content_hash: str
     filename: str
-    source_path: str
     is_uploaded: bool = False
     file_size_bytes: int
     latest_ingestion: LatestIngestionResponse | None

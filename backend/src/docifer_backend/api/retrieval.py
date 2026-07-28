@@ -1,7 +1,10 @@
 import asyncio
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
+from docifer_backend.config.paths import resolve_project_path
+from docifer_backend.config.settings import get_settings
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.query import TextQueryService
 from docifer_backend.retrieval.vector_store import vector_search_debug
@@ -33,8 +36,25 @@ from docifer_backend.schemas.retrieval import (
 router = APIRouter(tags=["retrieval"])
 
 
+def _validate_canonical_path(path_str: str) -> Path:
+    settings = get_settings()
+    resolved = Path(path_str).resolve()
+    allowed = [
+        resolve_project_path(settings.processed_data_dir),
+        resolve_project_path(settings.artifacts_dir),
+    ]
+    for root in allowed:
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="canonical_path is outside the allowed artifact directories.",
+    )
+
+
 @router.post("/index/text", response_model=TextIndexResponse)
 async def index_text(request: TextIndexRequest) -> TextIndexResponse:
+    _validate_canonical_path(request.canonical_path)
     outcome = await asyncio.to_thread(
         _index_text_document,
         request.canonical_path,
@@ -45,6 +65,7 @@ async def index_text(request: TextIndexRequest) -> TextIndexResponse:
 
 @router.post("/index/tables", response_model=TableIndexResponse)
 async def index_tables(request: TableIndexRequest) -> TableIndexResponse:
+    _validate_canonical_path(request.canonical_path)
     outcome = await asyncio.to_thread(
         _index_table_document,
         request.canonical_path,
@@ -158,8 +179,6 @@ def _evidence_responses(chunks, *, include_chunk_ids: set[str] | None = None) ->
                 document_id=chunk.document_id,
                 filename=chunk.filename,
                 content_hash=chunk.content_hash,
-                source_path=chunk.source_path,
-                source_artifact_path=chunk.source_artifact_path,
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,
             )
@@ -196,8 +215,6 @@ def _table_evidence_responses(
                 markdown_table=table.markdown_table,
                 structured_json=table.structured_json,
                 section_heading=table.section_heading,
-                source_path=table.source_path,
-                source_artifact_path=table.source_artifact_path,
                 source_chunk_id=table.source_chunk_id,
                 page_start=table.page_start,
                 page_end=table.page_end,
@@ -231,15 +248,12 @@ def _visual_evidence_responses(
                 source_kind=visual.source_kind,
                 page_start=visual.page_start,
                 page_end=visual.page_end,
-                artifact_path=visual.artifact_path,
                 caption=visual.caption,
                 section_heading=visual.section_heading,
                 nearby_text=visual.nearby_text,
                 figure_label=visual.figure_label,
                 visual_readiness=visual.visual_readiness,
                 filename=visual.filename,
-                source_path=visual.source_path,
-                source_artifact_path=visual.source_artifact_path,
             )
         )
     return responses
@@ -247,6 +261,7 @@ def _visual_evidence_responses(
 
 @router.post("/index/visuals", response_model=VisualIndexResponse)
 async def index_visuals(request: VisualIndexRequest) -> VisualIndexResponse:
+    _validate_canonical_path(request.canonical_path)
     outcome = await asyncio.to_thread(
         _index_visual_document,
         request.canonical_path,
@@ -275,15 +290,12 @@ async def retrieve_visuals(request: VisualRetrieveRequest) -> VisualRetrieveResp
             source_kind=result.source_kind,
             page_start=result.page_start,
             page_end=result.page_end,
-            artifact_path=result.artifact_path,
             caption=result.caption,
             section_heading=result.section_heading,
             nearby_text=result.nearby_text,
             figure_label=result.figure_label,
             visual_readiness=result.visual_readiness,
             filename=result.filename,
-            source_path=result.source_path,
-            source_artifact_path=result.source_artifact_path,
         )
         for result in results
     ]

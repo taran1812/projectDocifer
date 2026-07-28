@@ -10,6 +10,6 @@ class IngestionJobResponse(BaseModel):
     job_id: str
     document_id: str
     status: str
-    artifact_path: str | None
+    artifact_path: str | None = Field(default=None, exclude=True)
     reused_existing: bool
     error_message: str | None = None

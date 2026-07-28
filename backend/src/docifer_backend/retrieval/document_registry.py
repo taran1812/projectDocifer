@@ -47,7 +47,6 @@ class QueryDocumentRef:
             "document_id": self.document_id,
             "content_hash": self.content_hash,
             "filename": self.filename,
-            "source_path": self.source_path,
         }
 
 

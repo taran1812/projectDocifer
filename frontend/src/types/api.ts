@@ -24,7 +24,6 @@ export interface DocumentSummary {
   doc_id?: string | null;
   content_hash: string;
   filename: string;
-  source_path: string;
   is_uploaded: boolean;
   parser_name?: string | null;
   latest_ingestion_status?: string | null;
@@ -76,9 +75,6 @@ export interface Citation {
   evidence_type?: string;
   table_id?: string;
   visual_id?: string;
-  source_path: string;
-  source_artifact_path: string;
-  artifact_path?: string | null;
   page_start?: number | null;
   page_end?: number | null;
   table_type?: string;
@@ -132,8 +128,6 @@ export interface Evidence {
   document_id?: string | null;
   filename?: string | null;
   content_hash?: string | null;
-  source_path: string;
-  source_artifact_path?: string;
   page_start?: number | null;
   page_end?: number | null;
 }
@@ -184,7 +178,7 @@ export interface IngestionJobResponse {
   job_id: string;
   document_id: string;
   status: string;
-  artifact_path: string | null;
+  artifact_path?: string | null;
   reused_existing: boolean;
   error_message: string | null;
 }

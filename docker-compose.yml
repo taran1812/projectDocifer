@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: docifer
-      POSTGRES_USER: docifer_user
-      POSTGRES_PASSWORD: docifer_password
+      POSTGRES_DB: ${POSTGRES_DB:-docifer}
+      POSTGRES_USER: ${POSTGRES_USER:-docifer_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U docifer_user -d docifer"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docifer_user} -d ${POSTGRES_DB:-docifer}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -25,7 +25,7 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://docifer_user:docifer_password@postgres:5432/docifer
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-docifer_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-docifer}
       QDRANT_URL: http://qdrant:6333
       APP_HOST: 0.0.0.0
       CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"

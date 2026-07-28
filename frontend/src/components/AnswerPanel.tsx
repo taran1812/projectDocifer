@@ -47,7 +47,7 @@ export function AnswerPanel({ response, error, isLoading }: AnswerPanelProps) {
       <div className="citation-row">
         {[...response.answer_citations, ...response.table_citations, ...response.visual_citations].map(
           (citation, idx) => (
-            <span className="citation-chip" key={`${idx}-${citation.citation_id}-${citation.source_path}`}>
+            <span className="citation-chip" key={`${idx}-${citation.citation_id}`}>
               {citation.citation_id}
               <small>
                 {citation.filename ?? citation.doc_id ?? "source"} p.

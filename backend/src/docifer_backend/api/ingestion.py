@@ -6,12 +6,26 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, status
 from starlette.datastructures import UploadFile
 
+from docifer_backend.config.paths import resolve_project_path
 from docifer_backend.config.settings import get_settings
 from docifer_backend.ingestion.service import IngestionService
 from docifer_backend.retrieval.indexing import TextIndexingService
 from docifer_backend.retrieval.tables.indexing import TableIndexingService
 from docifer_backend.retrieval.visuals.indexing import VisualIndexingService
 from docifer_backend.schemas.ingestion import IngestPdfRequest, IngestionJobResponse
+
+_PDF_MAGIC = b"%PDF"
+
+
+def _validate_data_path(path_str: str, *allowed_roots: Path) -> Path:
+    resolved = Path(path_str).resolve()
+    for root in allowed_roots:
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Path is outside the allowed data directories.",
+    )
 
 
 def _get_uploads_dir() -> Path:
@@ -77,6 +91,12 @@ def _get_ingestion_service() -> IngestionService:
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_ingestion_job(request: IngestPdfRequest) -> IngestionJobResponse:
+    settings = get_settings()
+    _validate_data_path(
+        request.source_path,
+        resolve_project_path(settings.raw_pdf_dir),
+        _get_uploads_dir(),
+    )
     try:
         outcome = await asyncio.to_thread(
             _ingest_pdf,
@@ -130,6 +150,14 @@ async def upload_pdf(request: Request) -> IngestionJobResponse:
     safe_name = _sanitise_filename(file.filename)
     dest = uploads_dir / f"{uuid.uuid4().hex}_{safe_name}"
     await _write_upload_file(file, dest, max_bytes=max_upload_bytes)
+
+    with dest.open("rb") as f:
+        if f.read(len(_PDF_MAGIC)) != _PDF_MAGIC:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is not a valid PDF.",
+            )
 
     try:
         outcome = await asyncio.to_thread(
